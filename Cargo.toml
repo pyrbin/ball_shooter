@@ -1,0 +1,38 @@
+[package]
+name = "ball_shooter"
+version = "0.1.0"
+authors = ["pyrbin <git@pyrbin>"]
+edition = "2021"
+exclude = ["assets"]
+
+[profile.release]
+panic = 'abort'
+codegen-units = 1
+opt-level = 'z'
+lto = true
+
+[profile.dev]
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+[[bin]]
+name = "native"
+path = "src/bin/native.rs"
+
+[dependencies.bevy]
+version = "0.8.0"
+features = ["dynamic"]
+
+[dependencies]
+bevy_egui = "0.15.1"
+bevy_kira_audio = "0.12"
+bevy_asset_loader = "0.12"
+rand = "0.8.3"
+
+# https://deterministic.space/high-performance-rust.html#mimalloc
+mimalloc = { version = "0.1.17", default-features = false }
+
+# Keep the following in sync with Bevy's dependencies
+winit = { version = "0.26.0", default-features = false }
+image = { version = "0.24", default-features = false }
