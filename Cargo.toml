@@ -28,6 +28,8 @@ features = ["dynamic"]
 bevy_egui = "0.15.1"
 bevy_kira_audio = "0.12"
 bevy_asset_loader = "0.12"
+bevy-inspector-egui = "0.12.1"
+smooth-bevy-cameras = { git = "https://github.com/bonsairobo/smooth-bevy-cameras" }
 rand = "0.8.3"
 
 # https://deterministic.space/high-performance-rust.html#mimalloc
