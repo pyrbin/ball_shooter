@@ -92,11 +92,9 @@ impl Default for Layout {
     }
 }
 
-/// A hexagonal board.
+/// A dynamic hexagonal board.
 #[derive(Default, Debug, Clone)]
 pub struct Board {
-    pub width: u32,
-    pub height: u32,
     pub layout: Layout,
     pub storage: HashMap<Hex, Entity>,
 }
@@ -122,25 +120,37 @@ impl Board {
         Vec3::new(pos_2d.x, y, pos_2d.y)
     }
 
-    pub fn world_to_hex(&self, pos: Vec2) -> Hex {
-        self.layout.world_to_hex(pos)
+    pub fn world_to_hex(&self, pos: Vec3) -> Hex {
+        self.layout.world_to_hex(Vec2::new(pos.x, pos.z))
+    }
+
+    // TODO: this is a very inefficient way to do this.
+    #[inline]
+    pub fn ensure_centered(&mut self) {
+        let mut min = Vec2::new(std::f32::MAX, std::f32::MAX);
+        let mut max = Vec2::new(std::f32::MIN, std::f32::MIN);
+        for (hex, _) in self.storage.iter() {
+            let pos = self.layout.hex_to_world(*hex);
+            min = min.min(pos);
+            max = max.max(pos);
+        }
+        let origin = -((max + self.layout.size) / 2.0);
+        self.layout.origin = origin;
     }
 }
 
-/// Generates a rectangle layout for given `board`. Doesn't insert any cells into the board.
-pub fn rectangle(b: &Board) -> impl Iterator<Item = Hex> {
-    match b.layout.orientation {
-        Orientation::Flat => rectangle_flat(b),
-        Orientation::Pointy => rectangle_pointy(b),
+/// Generates a rectangle layout with given width `w` and height `h` on given orientation `o`.
+pub fn rectangle(w: i32, h: i32, o: Orientation) -> impl Iterator<Item = Hex> {
+    match o {
+        Orientation::Flat => rectangle_flat(w, h),
+        Orientation::Pointy => rectangle_pointy(w, h),
     }
 }
 
-fn rectangle_pointy(b: &Board) -> Box<dyn Iterator<Item = Hex>> {
-    let (w, h) = (b.width as i32, b.height as i32);
+fn rectangle_pointy(w: i32, h: i32) -> Box<dyn Iterator<Item = Hex>> {
     Box::new((0..=h).flat_map(move |y| (0 - (y >> 1)..w - (y >> 1)).map(move |x| Hex::new(x, y))))
 }
 
-fn rectangle_flat(b: &Board) -> Box<dyn Iterator<Item = Hex>> {
-    let (w, h) = (b.width as i32, b.height as i32);
+fn rectangle_flat(w: i32, h: i32) -> Box<dyn Iterator<Item = Hex>> {
     Box::new((0..=w).flat_map(move |x| (0 - (x >> 1)..h - (x >> 1)).map(move |y| Hex::new(x, y))))
 }

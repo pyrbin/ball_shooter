@@ -1,3 +1,4 @@
+mod ball;
 mod diagnostics;
 mod hex;
 mod loading;
@@ -7,9 +8,11 @@ use crate::diagnostics::*;
 use crate::loading::*;
 use crate::shoot::*;
 
+use ball::BallBundle;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_rapier3d::prelude::*;
 use smooth_bevy_cameras::{
     controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
     LookTransformPlugin,
@@ -30,6 +33,8 @@ pub fn app() -> App {
     app.add_plugin(WorldInspectorPlugin::new());
     app.add_plugin(LookTransformPlugin);
     app.add_plugin(OrbitCameraPlugin::default());
+    app.add_plugin(RapierPhysicsPlugin::<()>::default());
+    app.add_plugin(RapierDebugRenderPlugin::default());
 
     #[cfg(debug_assertions)]
     app.add_plugin(DiagnosticsPlugin);
@@ -46,8 +51,6 @@ pub fn app() -> App {
         ..Default::default()
     });
     app.insert_resource(hex::Board {
-        width: 10,
-        height: 25,
         layout: hex::Layout {
             orientation: hex::Orientation::Pointy,
             origin: Vec2::new(0.0, 0.0),
@@ -104,24 +107,30 @@ fn generate_board(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut board: ResMut<hex::Board>,
 ) {
-    for hex in hex::rectangle(&board) {
+    let (w, h) = (10, 10);
+    for hex in hex::rectangle(w, h, board.layout.orientation) {
         let world_pos = board.hex_to_world_y(hex, 0.5);
         let entity = commands
-            .spawn_bundle(PbrBundle {
-                mesh: meshes.add(Mesh::from(shape::Icosphere {
-                    subdivisions: 1,
-                    radius: 0.5,
-                })),
-                material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
-                transform: Transform::from_translation(world_pos),
+            .spawn_bundle(BallBundle {
+                pbr: PbrBundle {
+                    mesh: meshes.add(Mesh::from(shape::Icosphere {
+                        subdivisions: 1,
+                        radius: 0.75,
+                    })),
+                    material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
+                    transform: Transform::from_translation(world_pos),
+                    ..Default::default()
+                },
+                collider: Collider::ball(0.75),
                 ..Default::default()
             })
-            .insert(Name::new(format!("Hex {}, {}", hex.q, hex.r)))
             .insert(hex)
             .id();
 
         board.set(hex, Some(entity));
     }
+
+    board.ensure_centered();
 }
 
 fn upkeep_hex_board(
