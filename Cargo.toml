@@ -6,7 +6,6 @@ edition = "2021"
 exclude = ["assets"]
 
 [profile.release]
-panic = 'abort'
 codegen-units = 1
 opt-level = 'z'
 lto = true
@@ -20,9 +19,12 @@ debug = false
 name = "native"
 path = "src/bin/native.rs"
 
+[features]
+dev = ["bevy/dynamic"]
+
 [dependencies.bevy]
 version = "0.8.0"
-features = ["dynamic"]
+features = ["bevy_asset", "bevy_winit", "render", "png", "x11"]
 
 [dependencies]
 bevy_kira_audio = "0.12"

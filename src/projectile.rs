@@ -1,13 +1,17 @@
-use bevy::{prelude::*, utils::tracing::event};
+use bevy::prelude::*;
 use bevy_mod_check_filter::{IsFalse, IsTrue};
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_rapier3d::prelude::*;
 
-use crate::{
-    ball::{self, BallBundle},
-    debug::DebugLinesExt,
-    grid, hex, utils, AppState, MainCamera,
+use super::{
+    ball::{self, BallBundle, Species},
+    grid, utils, AppState, MainCamera,
 };
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
+pub enum ProjectileStage {
+    PostPhysics,
+}
 
 #[derive(Component, Clone, Default)]
 pub struct Projectile;
@@ -34,7 +38,7 @@ impl std::ops::Deref for Flying {
 }
 
 /// We apply a tiny reduction to the projectile collider radius.
-pub const PROJ_COLLIDER_COEFF: f32 = 0.8;
+pub const PROJ_COLLIDER_COEFF: f32 = 0.783;
 
 #[derive(Bundle)]
 pub struct ProjectileBundle {
@@ -47,12 +51,14 @@ pub struct ProjectileBundle {
     pub collision_events: ActiveEvents,
     pub projectile: Projectile,
     pub is_flying: Flying,
+    pub species: Species,
 }
 
 impl ProjectileBundle {
     pub fn new(
         pos: Vec3,
         radius: f32,
+        species: Species,
         meshes: &mut ResMut<Assets<Mesh>>,
         materials: &mut ResMut<Assets<StandardMaterial>>,
     ) -> Self {
@@ -62,12 +68,13 @@ impl ProjectileBundle {
                     subdivisions: 1,
                     radius: radius * ball::BALL_RADIUS_COEFF,
                 })),
-                material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
+                material: materials.add(ball::species_to_color(species).into()),
                 transform: Transform::from_translation(pos),
                 ..Default::default()
             },
             collider: Collider::ball(radius * ball::BALL_RADIUS_COEFF * PROJ_COLLIDER_COEFF),
             is_flying: Flying(false),
+            species: species,
             ..Default::default()
         }
     }
@@ -84,6 +91,7 @@ impl Default for ProjectileBundle {
             is_flying: Flying(false),
             velocity: Velocity::linear(Vec3::new(0., 0., 0.)),
             ccd: Ccd::enabled(),
+            species: Species::Red,
         }
     }
 }
@@ -104,6 +112,7 @@ fn projectile_reload(
         commands.spawn_bundle(ProjectileBundle::new(
             Vec3::new(0.0, 0.0, 40.0),
             grid.layout.size.x,
+            ball::random_species(),
             &mut meshes,
             &mut materials,
         ));
@@ -147,23 +156,7 @@ fn aim_projectile(
     }
 }
 
-fn display_projectile_velocity(
-    projectile: Query<(&Transform, &Velocity), (With<Projectile>, IsTrue<Flying>)>,
-    mut lines: ResMut<DebugLines>,
-) {
-    const VELOCITY_SCALE: f32 = 0.1;
-    for (transform, vel) in projectile.iter() {
-        let vel = (vel.linvel * VELOCITY_SCALE).clamp_length_min(3.);
-        lines.line_colored(
-            transform.translation,
-            transform.translation + vel,
-            0.0,
-            Color::YELLOW,
-        );
-    }
-}
-
-fn handle_bounce_on_world_bounds(
+fn bounce_on_world_bounds(
     mut projectile: Query<(Entity, &mut Transform, &mut Velocity, &Collider), IsTrue<Flying>>,
     grid: Res<grid::Grid>,
 ) {
@@ -198,7 +191,7 @@ fn clamp_inside_world_bounds(mut pos: Vec3, size: f32, x_bounds: Vec2) -> (Vec3,
     (pos, clamped)
 }
 
-fn handle_projectile_collisions_events(
+fn on_projectile_collisions_events(
     mut collision_events: EventReader<CollisionEvent>,
     mut ball_hit_write: EventWriter<BallHitEvent>,
     mut projectile: Query<(Entity, &mut Velocity, &Transform), (With<Projectile>, IsTrue<Flying>)>,
@@ -222,84 +215,102 @@ fn handle_projectile_collisions_events(
     }
 }
 
-fn handle_on_ball_hit_event(
-    mut ball_hits: EventReader<BallHitEvent>,
+fn on_ball_hit_event(
+    ball_hits: EventReader<BallHitEvent>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    projectile: Query<(Entity, &Transform, &Collider), (With<Projectile>, IsTrue<Flying>)>,
     mut grid: ResMut<grid::Grid>,
-    mut lines: ResMut<DebugLines>,
+    projectile: Query<(Entity, &Transform, &ball::Species), (With<Projectile>, IsTrue<Flying>)>,
+    balls: Query<&ball::Species, With<ball::Ball>>,
 ) {
-    for _ in ball_hits.iter().take(1) {
-        if let Ok((entity, tr, coll)) = projectile.get_single() {
-            let y = tr.translation.y;
-            let mut translation = tr.translation;
-            let mut hex = grid.world_to_hex(translation);
+    if ball_hits.is_empty() {
+        return;
+    }
 
-            // Draw projectile at collision
-            if let Some(shape) = coll.raw.as_ball() {
-                lines.circle(
-                    translation,
-                    tr.rotation,
-                    shape.radius,
-                    10000000000.0,
-                    Color::RED,
-                );
-            }
+    if let Ok((entity, tr, species)) = projectile.get_single() {
+        let y = tr.translation.y;
+        let mut translation = tr.translation;
+        let mut hex = grid.hex_coords(translation);
 
-            // Hard check to make sure the projectile is inside the grid bounds.
-            let (hex_radius, _) = grid.hex_world_size();
-            const SKIN_WIDTH: f32 = 0.1;
-            let radius = hex_radius + SKIN_WIDTH;
-            let (clamped, was_clamped) =
-                clamp_inside_world_bounds(grid.hex_to_world_y(hex, y), radius, grid.bounds.0);
-            if was_clamped {
-                hex = grid.world_to_hex(clamped);
-            }
-
-            // Dumb iterative check to make sure chosen hex is not occupied.
-            const MAX_ITER: usize = 10;
-            let mut iter = 0;
-            while let Some(_) = grid.get(hex) {
-                let step_size = Vec3::Z * radius;
-                translation += step_size;
-                (translation, _) = clamp_inside_world_bounds(translation, radius, grid.bounds.0);
-
-                lines.circle(translation, tr.rotation, 0.5, 10000000000.0, Color::GREEN);
-
-                hex = grid.world_to_hex(translation);
-
-                iter += 1;
-                if iter >= MAX_ITER {
-                    break;
-                }
-            }
-
-            commands.entity(entity).despawn();
-            commands.spawn().insert(ReloadProjectile);
-
-            let ball = commands
-                .spawn_bundle(BallBundle::new(
-                    grid.hex_to_world_y(hex, y),
-                    grid.layout.size.x,
-                    &mut meshes,
-                    &mut materials,
-                ))
-                .insert(hex)
-                .insert(Name::new(
-                    format!("Hex {:?}, {:?}", hex.q, hex.r).to_string(),
-                ))
-                .id();
-
-            grid.set(hex, Some(ball));
+        // Hard check to make sure the projectile is inside the grid bounds.
+        let (hex_radius, _) = grid.hex_world_size();
+        const SKIN_WIDTH: f32 = 0.1;
+        let radius = hex_radius + SKIN_WIDTH;
+        let (clamped, was_clamped) =
+            clamp_inside_world_bounds(grid.world_pos_y(hex, y), radius, grid.bounds.0);
+        if was_clamped {
+            hex = grid.hex_coords(clamped);
         }
+
+        // Dumb iterative check to make sure chosen hex is not occupied.
+        const MAX_ITER: usize = 10;
+        let mut iter = 0;
+        while let Some(_) = grid.get(hex) {
+            let step_size = Vec3::Z * radius;
+            translation += step_size;
+            (translation, _) = clamp_inside_world_bounds(translation, radius, grid.bounds.0);
+
+            hex = grid.hex_coords(translation);
+
+            iter += 1;
+            if iter >= MAX_ITER {
+                break;
+            }
+        }
+
+        commands.entity(entity).despawn();
+        commands.spawn().insert(ReloadProjectile);
+
+        let final_pos = grid.world_pos_y(hex, y);
+        let ball = commands
+            .spawn_bundle(BallBundle::new(
+                final_pos,
+                grid.layout.size.x,
+                *species,
+                &mut meshes,
+                &mut materials,
+            ))
+            .insert(hex)
+            .insert(Name::new(
+                format!("Hex {:?}, {:?}", hex.q, hex.r).to_string(),
+            ))
+            .id();
+
+        grid.set(hex, Some(ball));
+
+        let (cluster, _) = grid::find_cluster(&grid, hex, |e| match *e == ball {
+            true => true,
+            false => match balls.get(*e) {
+                Ok(other) => other == species,
+                Err(_) => false,
+            },
+        });
+
+        // Remove matching clusters
+        const MIN_CLUSTER_SIZE: usize = 3;
+        if cluster.len() >= MIN_CLUSTER_SIZE {
+            cluster.iter().for_each(|&hex| {
+                commands.entity(*grid.get(hex).unwrap()).despawn();
+                grid.set(hex, None);
+            });
+        }
+
+        // Remove floating clusters
+        let floating_clusters = grid::find_floating_clusters(&grid);
+        floating_clusters
+            .iter()
+            .flat_map(|e| e.iter())
+            .for_each(|&hex| {
+                commands.entity(*grid.get(hex).unwrap()).despawn();
+                grid.set(hex, None);
+            });
     }
 }
 
-pub struct ShootPlugin;
+pub struct ProjectilePlugin;
 
-impl Plugin for ShootPlugin {
+impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<BallHitEvent>();
         app.add_system_set(SystemSet::on_enter(AppState::Next).with_system(setup_shooting));
@@ -308,14 +319,17 @@ impl Plugin for ShootPlugin {
                 .with_system(projectile_reload)
                 .with_system(aim_projectile),
         );
-        app.add_system_set(
-            SystemSet::on_update(AppState::Next)
-                .with_system(handle_bounce_on_world_bounds)
-                .with_system(handle_projectile_collisions_events)
-                .with_system(handle_on_ball_hit_event),
+        app.add_stage_after(
+            PhysicsStages::Writeback,
+            ProjectileStage::PostPhysics,
+            SystemStage::single_threaded(),
         );
-        app.add_system_set(
-            SystemSet::on_update(AppState::Next).with_system(display_projectile_velocity),
+        app.add_system_set_to_stage(
+            ProjectileStage::PostPhysics,
+            SystemSet::new()
+                .with_system(bounce_on_world_bounds)
+                .with_system(on_projectile_collisions_events)
+                .with_system(on_ball_hit_event),
         );
     }
 }

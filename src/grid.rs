@@ -1,8 +1,11 @@
 use bevy::prelude::*;
 use bevy_prototype_debug_lines::DebugLines;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::{ball::BallBundle, hex, AppState};
+use super::{
+    ball::{self, BallBundle},
+    hex, AppState,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub struct GenerateGrid(pub i32, pub i32);
@@ -30,17 +33,38 @@ impl Grid {
         }
     }
 
-    pub fn hex_to_world(&self, hex: hex::Hex) -> Vec2 {
+    pub fn world_pos(&self, hex: hex::Hex) -> Vec2 {
         self.layout.hex_to_world(hex)
     }
 
-    pub fn hex_to_world_y(&self, hex: hex::Hex, y: f32) -> Vec3 {
+    pub fn world_pos_y(&self, hex: hex::Hex, y: f32) -> Vec3 {
         let pos_2d = self.layout.hex_to_world(hex);
         Vec3::new(pos_2d.x, y, pos_2d.y)
     }
 
-    pub fn world_to_hex(&self, pos: Vec3) -> hex::Hex {
+    pub fn hex_coords(&self, pos: Vec3) -> hex::Hex {
         self.layout.world_to_hex(Vec2::new(pos.x, pos.z))
+    }
+
+    pub fn hex_world_size(&self) -> (f32, f32) {
+        self.layout.hex_world_size()
+    }
+
+    pub fn neighbor(&self, hex: hex::Hex, dir: hex::Direction) -> Option<(hex::Hex, &Entity)> {
+        match self.get(hex.neighbor(dir, &self.layout)) {
+            Some(entity) => Some((hex, entity)),
+            None => None,
+        }
+    }
+
+    pub fn neighbors(&self, hex: hex::Hex) -> Vec<(hex::Hex, &Entity)> {
+        hex.neighbors(&self.layout)
+            .iter()
+            .filter_map(|&hex| match self.get(hex) {
+                Some(entity) => Some((hex, entity)),
+                None => None,
+            })
+            .collect::<Vec<(hex::Hex, &Entity)>>()
     }
 
     // TODO: this is not that efficient, but should be fine for now.
@@ -71,10 +95,75 @@ impl Grid {
         self.layout.origin = Vec2::new(-half_w + hw / 2., -half_h + hh / 2.);
         self.update_bounds();
     }
+}
 
-    pub fn hex_world_size(&self) -> (f32, f32) {
-        self.layout.hex_world_size()
+#[inline(always)]
+pub fn find_cluster<'a, P>(
+    grid: &Grid,
+    origin: hex::Hex,
+    condition_pred: P,
+) -> (Vec<hex::Hex>, HashSet<hex::Hex>)
+where
+    P: Fn(&Entity) -> bool,
+{
+    let mut processed = HashSet::<hex::Hex>::new();
+    let mut to_process = vec![origin];
+    let mut cluster: Vec<hex::Hex> = vec![];
+
+    processed.insert(origin);
+
+    while let Some(current) = to_process.pop() {
+        if let Some(entity) = grid.get(current) {
+            if !condition_pred(entity) {
+                continue;
+            }
+
+            cluster.push(current);
+
+            for (hex, _) in grid.neighbors(current).iter() {
+                if processed.contains(hex) {
+                    continue;
+                }
+                to_process.push(*hex);
+                processed.insert(*hex);
+            }
+        }
     }
+
+    (cluster, processed)
+}
+
+#[inline(always)]
+pub fn find_floating_clusters(grid: &Grid) -> Vec<Vec<hex::Hex>> {
+    let mut processed = HashSet::<hex::Hex>::new();
+    let mut floating_clusters: Vec<Vec<hex::Hex>> = vec![];
+
+    for (hex, _) in grid.storage.iter() {
+        if processed.contains(hex) {
+            continue;
+        }
+
+        let (cluster, _processed) = find_cluster(grid, *hex, |_| true);
+
+        processed.extend(_processed);
+
+        if cluster.len() <= 0 {
+            continue;
+        }
+
+        let mut floating = true;
+        for hex in cluster.iter() {
+            // TODO(pyrbin): we have to find a better way check if ball is top row
+            if hex.r == 0 {
+                floating = false;
+                break;
+            }
+        }
+        if floating {
+            floating_clusters.push(cluster);
+        }
+    }
+    floating_clusters
 }
 
 fn generate_grid(
@@ -85,11 +174,12 @@ fn generate_grid(
     grid_size: Res<GenerateGrid>,
 ) {
     for hex in hex::rectangle(grid_size.0, grid_size.1, grid.layout.orientation) {
-        let world_pos = grid.hex_to_world_y(hex, 0.0);
+        let world_pos = grid.world_pos_y(hex, 0.0);
         let entity = commands
             .spawn_bundle(BallBundle::new(
                 world_pos,
                 grid.layout.size.x,
+                ball::random_species(),
                 &mut meshes,
                 &mut materials,
             ))
@@ -113,7 +203,7 @@ fn upkeep_hex_transforms(
     mut grid: ResMut<Grid>,
 ) {
     for (entity, mut transform, hex) in hexes.iter_mut() {
-        let (x, z) = grid.hex_to_world(*hex).into();
+        let (x, z) = grid.world_pos(*hex).into();
         transform.translation.x = x;
         transform.translation.z = z;
         grid.set(*hex, Some(entity));
@@ -150,7 +240,12 @@ fn display_grid_bounds(grid: Res<Grid>, mut lines: ResMut<DebugLines>) {
         Color::GRAY,
     );
 
-    let xc: i32 = ((grid.bounds.0.y - grid.bounds.0.x) / (grid.layout.size.x * 2.)).ceil() as i32;
+    let xc: i32 = ((grid.bounds.0.y - grid.bounds.0.x) / (grid.layout.size.x * 2.)).ceil() as i32
+        + match grid.layout.orientation {
+            hex::Orientation::Pointy => 0,
+            hex::Orientation::Flat => 1,
+        };
+
     let yc: i32 = ((grid.bounds.1.y - grid.bounds.1.x) / (grid.layout.size.y * 2.)).ceil() as i32;
 
     for hex in hex::rectangle(xc, yc + 40, grid.layout.orientation) {

@@ -4,18 +4,16 @@ mod diagnostics;
 mod grid;
 mod hex;
 mod loading;
-mod shoot;
+mod projectile;
 mod utils;
 
+use crate::debug::*;
 use crate::diagnostics::*;
 use crate::grid::*;
 use crate::loading::*;
-use crate::shoot::*;
+use crate::projectile::*;
 
 use bevy::prelude::*;
-use bevy_egui::EguiPlugin;
-use bevy_inspector_egui::WorldInspectorPlugin;
-use bevy_prototype_debug_lines::*;
 use bevy_rapier3d::prelude::*;
 use smooth_bevy_cameras::{
     controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
@@ -39,17 +37,16 @@ pub fn app() -> App {
     app.add_plugin(LookTransformPlugin);
     app.add_plugin(OrbitCameraPlugin::default());
     app.add_plugin(RapierPhysicsPlugin::<()>::default());
-    // Debugging
-    app.add_plugin(EguiPlugin);
-    app.add_plugin(WorldInspectorPlugin::new());
 
-    //app.add_plugin(RapierDebugRenderPlugin::default());
-    app.add_plugin(DebugLinesPlugin::with_depth_test(true));
-
-    app.add_plugin(DiagnosticsPlugin);
+    #[cfg(debug_assertions)]
+    {
+        //app.add_plugin(RapierDebugRenderPlugin::default());
+        app.add_plugin(DiagnosticsPlugin);
+        app.add_plugin(DebugPlugin);
+    }
 
     app.add_plugin(LoadingPlugin);
-    app.add_plugin(ShootPlugin);
+    app.add_plugin(ProjectilePlugin);
     app.add_plugin(GridPlugin);
 
     app.insert_resource(Msaa { samples: 4 });

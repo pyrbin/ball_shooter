@@ -1,7 +1,9 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::prelude::*;
-use bevy_prototype_debug_lines::DebugLines;
+use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
+
+pub const FOREVER: f32 = std::f32::MAX;
 
 pub trait DebugLinesExt {
     fn circle(&mut self, origin: Vec3, rot: Quat, radius: f32, duration: f32, color: Color);
@@ -55,5 +57,13 @@ fn add_quartercircle(
         let next_point = direction.mul_vec3(current_point);
         lines.line_colored(origin + current_point, origin + next_point, duration, color);
         current_point = next_point;
+    }
+}
+
+pub struct DebugPlugin;
+
+impl Plugin for DebugPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugin(DebugLinesPlugin::with_depth_test(true));
     }
 }

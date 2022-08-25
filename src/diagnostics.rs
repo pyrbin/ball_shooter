@@ -1,6 +1,7 @@
 use bevy::diagnostic::Diagnostics;
 use bevy::prelude::*;
 use bevy_egui::*;
+use bevy_inspector_egui::WorldInspectorPlugin;
 
 pub fn diagnostic_ui(ui: &mut egui::Ui, diagnostics: &Diagnostics) {
     egui::Grid::new("frame time diagnostics").show(ui, |ui| {
@@ -30,8 +31,10 @@ pub struct DiagnosticsPlugin;
 
 impl Plugin for DiagnosticsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugin(bevy::diagnostic::DiagnosticsPlugin)
+        app.add_plugin(EguiPlugin)
+            .add_plugin(bevy::diagnostic::DiagnosticsPlugin)
             .add_plugin(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
-            .add_system(egui_display_diagnostics);
+            .add_system(egui_display_diagnostics)
+            .add_plugin(WorldInspectorPlugin::new());
     }
 }

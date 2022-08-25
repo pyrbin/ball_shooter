@@ -1,5 +1,9 @@
 use bevy::prelude::*;
-use std::f32::consts::PI;
+use std::{f32::consts::PI, ops::Add};
+
+pub const INNER_RADIUS_COEFF: f32 = 0.866025404;
+
+const SQRT_3: f32 = 1.732_f32;
 
 /// A hex cell at a given position.
 #[derive(Component, Debug, Copy, Clone, Default, Eq, PartialEq, Hash)]
@@ -10,17 +14,102 @@ pub struct Hex {
 
 impl Hex {
     // Create a new hex with the offset coordinates `q` and `r`.
+    #[inline(always)]
     pub fn new(q: i32, r: i32) -> Self {
         Self { q, r }
     }
+
+    #[inline]
+    pub fn neighbor(self, dir: Direction, layout: &Layout) -> Self {
+        let (q, r) = self.into();
+
+        let is_even = match layout.orientation {
+            Orientation::Flat => q % 2 == 0,
+            Orientation::Pointy => r % 2 == 0,
+        };
+
+        match is_even {
+            true => self + dir.offset_even(),
+            false => self + dir.offset_odd(),
+        }
+    }
+
+    #[inline]
+    pub fn neighbors(self, layout: &Layout) -> [Self; 6] {
+        Direction::all()
+            .iter()
+            .map(|d| self.neighbor(*d, layout))
+            .collect::<Vec<Hex>>()
+            .try_into()
+            .unwrap()
+    }
 }
 
-pub const INNER_RADIUS_COEFF: f32 = 0.866025404;
+impl Add<Hex> for Hex {
+    type Output = Self;
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            q: self.q + rhs.q,
+            r: self.r + rhs.r,
+        }
+    }
+}
 
-const SQRT_3: f32 = 1.732_f32;
+impl From<Hex> for (i32, i32) {
+    #[inline]
+    fn from(h: Hex) -> Self {
+        (h.q, h.r)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum Direction {
+    N,
+    NE,
+    SE,
+    S,
+    SW,
+    NW,
+}
+
+impl Direction {
+    pub fn all() -> &'static [Direction; 6] {
+        &[
+            Direction::N,
+            Direction::NE,
+            Direction::SE,
+            Direction::S,
+            Direction::SW,
+            Direction::NW,
+        ]
+    }
+
+    pub fn offset_even(self) -> Hex {
+        match self {
+            Direction::N => Hex::new(1, -1),
+            Direction::NE => Hex::new(1, 0),
+            Direction::SE => Hex::new(0, 1),
+            Direction::S => Hex::new(-1, 1),
+            Direction::SW => Hex::new(-1, 0),
+            Direction::NW => Hex::new(0, -1),
+        }
+    }
+
+    pub fn offset_odd(self) -> Hex {
+        match self {
+            Direction::N => Hex::new(1, -1),
+            Direction::NE => Hex::new(-1, 0),
+            Direction::SE => Hex::new(0, 1),
+            Direction::S => Hex::new(-1, 1),
+            Direction::SW => Hex::new(1, 0),
+            Direction::NW => Hex::new(0, -1),
+        }
+    }
+}
 
 /// Hex orientation.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Orientation {
     Flat,
     Pointy,
@@ -64,6 +153,7 @@ pub struct Layout {
 }
 
 impl Layout {
+    #[inline]
     pub fn hex_to_world(&self, hex: Hex) -> Vec2 {
         let matrix = self.orientation.transform().fwd_matrix;
         let (sx, sy) = self.size.into();
@@ -74,6 +164,7 @@ impl Layout {
         )
     }
 
+    #[inline]
     pub fn world_to_hex(&self, pos: Vec2) -> Hex {
         let matrix = self.orientation.transform().inv_matrix;
         let point = (pos - self.origin) / self.size;
@@ -82,6 +173,7 @@ impl Layout {
         Hex::new(x.round() as i32, y.round() as i32)
     }
 
+    #[inline]
     pub fn hex_corners(&self, hex: Hex) -> [Vec2; 6] {
         let center = self.hex_to_world(hex);
         [0, 1, 2, 3, 4, 5].map(|corner| {
@@ -90,6 +182,7 @@ impl Layout {
         })
     }
 
+    #[inline]
     pub fn hex_world_size(&self) -> (f32, f32) {
         let (sx, sy) = self.size.into();
         let sx = match self.orientation {
