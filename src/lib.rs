@@ -1,17 +1,21 @@
 mod ball;
+mod debug;
 mod diagnostics;
+mod grid;
 mod hex;
 mod loading;
 mod shoot;
+mod utils;
 
 use crate::diagnostics::*;
+use crate::grid::*;
 use crate::loading::*;
 use crate::shoot::*;
 
-use ball::BallBundle;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_prototype_debug_lines::*;
 use bevy_rapier3d::prelude::*;
 use smooth_bevy_cameras::{
     controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
@@ -26,20 +30,27 @@ enum AppState {
     Next,
 }
 
+#[derive(Component)]
+pub struct MainCamera;
+
 pub fn app() -> App {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins);
-    app.add_plugin(EguiPlugin);
-    app.add_plugin(WorldInspectorPlugin::new());
     app.add_plugin(LookTransformPlugin);
     app.add_plugin(OrbitCameraPlugin::default());
     app.add_plugin(RapierPhysicsPlugin::<()>::default());
-    app.add_plugin(RapierDebugRenderPlugin::default());
+    // Debugging
+    app.add_plugin(EguiPlugin);
+    app.add_plugin(WorldInspectorPlugin::new());
 
-    #[cfg(debug_assertions)]
+    //app.add_plugin(RapierDebugRenderPlugin::default());
+    app.add_plugin(DebugLinesPlugin::with_depth_test(true));
+
     app.add_plugin(DiagnosticsPlugin);
+
     app.add_plugin(LoadingPlugin);
     app.add_plugin(ShootPlugin);
+    app.add_plugin(GridPlugin);
 
     app.insert_resource(Msaa { samples: 4 });
     app.insert_resource(ClearColor(Color::rgb(0.4, 0.4, 0.4)));
@@ -50,34 +61,16 @@ pub fn app() -> App {
         fit_canvas_to_parent: true,
         ..Default::default()
     });
-    app.insert_resource(hex::Board {
-        layout: hex::Layout {
-            orientation: hex::Orientation::Pointy,
-            origin: Vec2::new(0.0, 0.0),
-            size: Vec2::new(1.0, 1.0),
-        },
-        ..Default::default()
-    });
     app.add_state(AppState::Loading);
     app.add_system_set(
         SystemSet::on_enter(AppState::Next)
             .with_system(setup_level)
-            .with_system(setup_camera)
-            .with_system(generate_board),
-    );
-    app.add_system_set(
-        SystemSet::on_update(AppState::Next)
-            .with_system(upkeep_hex_board)
-            .with_system(rotate_balls),
+            .with_system(setup_camera),
     );
     app
 }
 
-fn setup_level(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+fn setup_level(mut commands: Commands) {
     commands.spawn_bundle(PointLightBundle {
         point_light: PointLight {
             intensity: 5000.0,
@@ -98,55 +91,6 @@ fn setup_camera(mut commands: Commands) {
             OrbitCameraController::default(),
             Vec3::new(0., 15., 0.),
             Vec3::new(0., 0., 0.),
-        ));
-}
-
-fn generate_board(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut board: ResMut<hex::Board>,
-) {
-    let (w, h) = (10, 10);
-    for hex in hex::rectangle(w, h, board.layout.orientation) {
-        let world_pos = board.hex_to_world_y(hex, 0.5);
-        let entity = commands
-            .spawn_bundle(BallBundle {
-                pbr: PbrBundle {
-                    mesh: meshes.add(Mesh::from(shape::Icosphere {
-                        subdivisions: 1,
-                        radius: 0.75,
-                    })),
-                    material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
-                    transform: Transform::from_translation(world_pos),
-                    ..Default::default()
-                },
-                collider: Collider::ball(0.75),
-                ..Default::default()
-            })
-            .insert(hex)
-            .id();
-
-        board.set(hex, Some(entity));
-    }
-
-    board.ensure_centered();
-}
-
-fn upkeep_hex_board(
-    mut hexes: Query<(Entity, &mut Transform, &hex::Hex), Changed<hex::Hex>>,
-    mut board: ResMut<hex::Board>,
-) {
-    for (entity, mut transform, hex) in hexes.iter_mut() {
-        let (x, z) = board.hex_to_world(*hex).into();
-        transform.translation.x = x;
-        transform.translation.z = z;
-        board.set(*hex, Some(entity));
-    }
-}
-
-fn rotate_balls(mut balls: Query<&mut Transform, With<hex::Hex>>) {
-    for mut transform in balls.iter_mut() {
-        transform.rotation *= Quat::from_rotation_x(0.05);
-    }
+        ))
+        .insert(MainCamera);
 }

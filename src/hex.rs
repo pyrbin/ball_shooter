@@ -1,20 +1,21 @@
 use bevy::prelude::*;
-use std::collections::HashMap;
+use std::f32::consts::PI;
 
 /// A hex cell at a given position.
 #[derive(Component, Debug, Copy, Clone, Default, Eq, PartialEq, Hash)]
 pub struct Hex {
     pub q: i32,
     pub r: i32,
-    pub s: i32,
 }
 
 impl Hex {
     // Create a new hex with the offset coordinates `q` and `r`.
     pub fn new(q: i32, r: i32) -> Self {
-        Self { q, r, s: -q - r }
+        Self { q, r }
     }
 }
+
+pub const INNER_RADIUS_COEFF: f32 = 0.866025404;
 
 const SQRT_3: f32 = 1.732_f32;
 
@@ -80,6 +81,28 @@ impl Layout {
         let y = matrix[2].mul_add(point.x, matrix[3] * point.y);
         Hex::new(x.round() as i32, y.round() as i32)
     }
+
+    pub fn hex_corners(&self, hex: Hex) -> [Vec2; 6] {
+        let center = self.hex_to_world(hex);
+        [0, 1, 2, 3, 4, 5].map(|corner| {
+            let angle = PI * 2.0 * (self.orientation.transform().angle + corner as f32) / 6.;
+            center + Vec2::new(self.size.x * angle.cos(), self.size.y * angle.sin())
+        })
+    }
+
+    pub fn hex_world_size(&self) -> (f32, f32) {
+        let (sx, sy) = self.size.into();
+        let sx = match self.orientation {
+            Orientation::Flat => sx,
+            Orientation::Pointy => sx * INNER_RADIUS_COEFF,
+        };
+
+        let sy = match self.orientation {
+            Orientation::Flat => sy * INNER_RADIUS_COEFF,
+            Orientation::Pointy => sy,
+        };
+        (sx, sy)
+    }
 }
 
 impl Default for Layout {
@@ -89,53 +112,6 @@ impl Default for Layout {
             origin: Vec2::new(0.0, 0.0),
             size: Vec2::new(1.0, 1.0),
         }
-    }
-}
-
-/// A dynamic hexagonal board.
-#[derive(Default, Debug, Clone)]
-pub struct Board {
-    pub layout: Layout,
-    pub storage: HashMap<Hex, Entity>,
-}
-
-impl Board {
-    pub fn get(&self, hex: Hex) -> Option<&Entity> {
-        self.storage.get(&hex)
-    }
-
-    pub fn set(&mut self, hex: Hex, entity: Option<Entity>) -> Option<Entity> {
-        match entity {
-            Some(entity) => self.storage.insert(hex.clone(), entity),
-            None => self.storage.remove(&hex),
-        }
-    }
-
-    pub fn hex_to_world(&self, hex: Hex) -> Vec2 {
-        self.layout.hex_to_world(hex)
-    }
-
-    pub fn hex_to_world_y(&self, hex: Hex, y: f32) -> Vec3 {
-        let pos_2d = self.layout.hex_to_world(hex);
-        Vec3::new(pos_2d.x, y, pos_2d.y)
-    }
-
-    pub fn world_to_hex(&self, pos: Vec3) -> Hex {
-        self.layout.world_to_hex(Vec2::new(pos.x, pos.z))
-    }
-
-    // TODO: this is a very inefficient way to do this.
-    #[inline]
-    pub fn ensure_centered(&mut self) {
-        let mut min = Vec2::new(std::f32::MAX, std::f32::MAX);
-        let mut max = Vec2::new(std::f32::MIN, std::f32::MIN);
-        for (hex, _) in self.storage.iter() {
-            let pos = self.layout.hex_to_world(*hex);
-            min = min.min(pos);
-            max = max.max(pos);
-        }
-        let origin = -((max + self.layout.size) / 2.0);
-        self.layout.origin = origin;
     }
 }
 
