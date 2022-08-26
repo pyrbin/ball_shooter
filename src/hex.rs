@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 use std::{f32::consts::PI, ops::Add};
 
+// TODO: most functions are only tested on Orientation.Pointy
+// probly doesn't work for Orientation.Flat
+
 pub const INNER_RADIUS_COEFF: f32 = 0.866025404;
 
 const SQRT_3: f32 = 1.732_f32;
@@ -20,15 +23,36 @@ impl Hex {
     }
 
     #[inline]
-    pub fn neighbor(self, dir: Direction, layout: &Layout) -> Self {
+    pub fn is_even(self, layout: &Layout) -> bool {
         let (q, r) = self.into();
-
-        let is_even = match layout.orientation {
+        match layout.orientation {
             Orientation::Flat => q % 2 == 0,
             Orientation::Pointy => r % 2 == 0,
-        };
+        }
+    }
 
-        match is_even {
+    #[inline]
+    pub fn is_odd(self, layout: &Layout) -> bool {
+        !self.is_even(layout)
+    }
+
+    #[inline]
+    pub fn down(self, layout: &Layout) -> Self {
+        self.neighbor(
+            match layout.orientation {
+                Orientation::Flat => Direction::S,
+                Orientation::Pointy => match self.is_even(layout) {
+                    true => Direction::SE,
+                    false => Direction::S,
+                },
+            },
+            layout,
+        )
+    }
+
+    #[inline]
+    pub fn neighbor(self, dir: Direction, layout: &Layout) -> Self {
+        match self.is_even(layout) {
             true => self + dir.offset_even(),
             false => self + dir.offset_odd(),
         }

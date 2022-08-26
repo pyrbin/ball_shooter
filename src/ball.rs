@@ -14,7 +14,7 @@ pub enum Species {
     Blue,
     Green,
     Yellow,
-    Purple,
+    White,
 }
 
 pub fn species_to_color(species: Species) -> Color {
@@ -23,7 +23,7 @@ pub fn species_to_color(species: Species) -> Color {
         Species::Blue => Color::rgb_u8(0, 93, 234),
         Species::Green => Color::rgb_u8(0, 197, 171),
         Species::Yellow => Color::rgb_u8(255, 219, 0),
-        Species::Purple => Color::rgb_u8(122, 1, 218),
+        Species::White => Color::ANTIQUE_WHITE,
     }
 }
 
@@ -33,7 +33,7 @@ pub fn random_species() -> Species {
         1 => Species::Blue,
         2 => Species::Green,
         3 => Species::Yellow,
-        4 => Species::Purple,
+        4 => Species::White,
         _ => unreachable!(),
     }
 }

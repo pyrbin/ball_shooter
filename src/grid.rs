@@ -2,6 +2,8 @@ use bevy::prelude::*;
 use bevy_prototype_debug_lines::DebugLines;
 use std::collections::{HashMap, HashSet};
 
+use crate::debug::{self, DebugLinesExt};
+
 use super::{
     ball::{self, BallBundle},
     hex, AppState,
@@ -15,10 +17,12 @@ pub struct GenerateGrid(pub i32, pub i32);
 pub struct Grid {
     pub layout: hex::Layout,
     pub storage: HashMap<hex::Hex, Entity>,
-    /// World bounds.
+    /// World bounds. Updated by calling [update_bounds].
     /// `0` = (min_x, max_x),
     /// `1` = (min_y, max_y).
     pub bounds: (Vec2, Vec2),
+    /// True if bounds haven't been updated since last modification.
+    pub dirty: bool,
 }
 
 impl Grid {
@@ -27,10 +31,24 @@ impl Grid {
     }
 
     pub fn set(&mut self, hex: hex::Hex, entity: Option<Entity>) -> Option<Entity> {
+        self.dirty = true;
         match entity {
             Some(entity) => self.storage.insert(hex.clone(), entity),
             None => self.storage.remove(&hex),
         }
+    }
+
+    pub fn dim(&self) -> (f32, f32) {
+        (
+            (self.bounds.0.y - self.bounds.0.x).abs(),
+            (self.bounds.1.y - self.bounds.1.x).abs(),
+        )
+    }
+
+    pub fn columns(&self) -> i32 {
+        let (w, _) = self.dim();
+        let (hw, _) = self.layout.hex_world_size();
+        (w / hw / 2.0).round() as i32
     }
 
     pub fn world_pos(&self, hex: hex::Hex) -> Vec2 {
@@ -68,6 +86,7 @@ impl Grid {
     }
 
     // TODO: this is not that efficient, but should be fine for now.
+    #[inline]
     pub fn update_bounds(&mut self) {
         let mut max_x = f32::MIN;
         let mut max_y = f32::MIN;
@@ -83,6 +102,7 @@ impl Grid {
 
         let (sx, sy) = self.hex_world_size();
 
+        self.dirty = false;
         self.bounds = (
             Vec2::new(min_x - sx, max_x + sx),
             Vec2::new(min_y - sy, max_y + sx),
@@ -90,6 +110,7 @@ impl Grid {
     }
 
     pub fn ensure_centered(&mut self) {
+        self.update_bounds();
         let (half_w, half_h) = (self.bounds.0.y / 2.0, self.bounds.1.y / 2.0);
         let (hw, hh) = self.hex_world_size();
         self.layout.origin = Vec2::new(-half_w + hw / 2., -half_h + hh / 2.);
@@ -166,6 +187,37 @@ pub fn find_floating_clusters(grid: &Grid) -> Vec<Vec<hex::Hex>> {
     floating_clusters
 }
 
+pub fn move_down_and_spawn(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    grid: &mut Grid,
+) {
+    // Move all down
+    for (&hex, &entity) in grid.storage.iter() {
+        let dst = hex.down(&grid.layout);
+        commands.entity(entity).insert(dst);
+    }
+
+    // Spawn new row
+    for hex in hex::rectangle(grid.columns(), 1, grid.layout.orientation) {
+        let world_pos = grid.world_pos_y(hex, 0.0);
+        let entity = commands
+            .spawn_bundle(BallBundle::new(
+                world_pos,
+                grid.layout.size.x,
+                ball::random_species(),
+                &mut meshes,
+                &mut materials,
+            ))
+            .insert(hex)
+            .insert(Name::new(
+                format!("hex::Hex {:?}, {:?}", hex.q, hex.r).to_string(),
+            ))
+            .id();
+    }
+}
+
 fn generate_grid(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -192,9 +244,7 @@ fn generate_grid(
         grid.set(hex, Some(entity));
     }
 
-    grid.update_bounds();
     grid.ensure_centered();
-
     commands.remove_resource::<GenerateGrid>();
 }
 
@@ -203,10 +253,10 @@ fn upkeep_hex_transforms(
     mut grid: ResMut<Grid>,
 ) {
     for (entity, mut transform, hex) in hexes.iter_mut() {
+        grid.set(*hex, Some(entity));
         let (x, z) = grid.world_pos(*hex).into();
         transform.translation.x = x;
         transform.translation.z = z;
-        grid.set(*hex, Some(entity));
     }
 }
 
@@ -274,7 +324,7 @@ impl Plugin for GridPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Grid {
             layout: hex::Layout {
-                orientation: hex::Orientation::Pointy,
+                orientation: hex::Orientation::Pointy ,
                 origin: Vec2::new(0.0, 0.0),
                 size: Vec2::new(2.0, 2.0),
             },

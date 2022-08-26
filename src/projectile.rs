@@ -1,4 +1,5 @@
-use bevy::prelude::*;
+use bevy::{input::keyboard::KeyboardInput, prelude::*};
+use bevy_inspector_egui::egui::Key;
 use bevy_mod_check_filter::{IsFalse, IsTrue};
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_rapier3d::prelude::*;
@@ -119,6 +120,18 @@ fn projectile_reload(
     }
 }
 
+fn move_down_and_spawn(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut grid: ResMut<grid::Grid>,
+    keyboard: Res<Input<KeyCode>>,
+) {
+    if keyboard.just_pressed(KeyCode::Space) {
+        grid::move_down_and_spawn(commands, meshes, materials, grid.as_mut());
+    }
+}
+
 fn aim_projectile(
     windows: Res<Windows>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
@@ -148,7 +161,7 @@ fn aim_projectile(
             return;
         }
 
-        const PROJECTILE_SPEED: f32 = 40.;
+        const PROJECTILE_SPEED: f32 = 80.;
         let aim_direction = (point - transform.translation).normalize();
         vel.linvel = aim_direction * PROJECTILE_SPEED;
 
@@ -316,11 +329,12 @@ impl Plugin for ProjectilePlugin {
         app.add_system_set(SystemSet::on_enter(AppState::Next).with_system(setup_shooting));
         app.add_system_set(
             SystemSet::on_update(AppState::Next)
+                .with_system(move_down_and_spawn)
                 .with_system(projectile_reload)
                 .with_system(aim_projectile),
         );
-        app.add_stage_after(
-            PhysicsStages::Writeback,
+        app.add_stage_before(
+            PhysicsStages::SyncBackend,
             ProjectileStage::PostPhysics,
             SystemStage::single_threaded(),
         );
