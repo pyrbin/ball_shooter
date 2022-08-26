@@ -14,6 +14,7 @@ use crate::loading::*;
 use crate::projectile::*;
 
 use bevy::prelude::*;
+use bevy_embedded_assets::EmbeddedAssetPlugin;
 use bevy_rapier3d::prelude::*;
 use smooth_bevy_cameras::{
     controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
@@ -33,17 +34,15 @@ pub struct MainCamera;
 
 pub fn app() -> App {
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins);
+    app.add_plugins_with(DefaultPlugins, |group| {
+        group.add_before::<bevy::asset::AssetPlugin, _>(EmbeddedAssetPlugin)
+    });
     app.add_plugin(LookTransformPlugin);
     app.add_plugin(OrbitCameraPlugin::default());
     app.add_plugin(RapierPhysicsPlugin::<()>::default());
 
-    #[cfg(debug_assertions)]
-    {
-        //app.add_plugin(RapierDebugRenderPlugin::default());
-        app.add_plugin(DiagnosticsPlugin);
-        app.add_plugin(DebugPlugin);
-    }
+    app.add_plugin(DiagnosticsPlugin);
+    app.add_plugin(DebugPlugin);
 
     app.add_plugin(LoadingPlugin);
     app.add_plugin(ProjectilePlugin);
@@ -71,7 +70,7 @@ fn setup_level(mut commands: Commands) {
     commands.spawn_bundle(PointLightBundle {
         point_light: PointLight {
             intensity: 5000.0,
-            radius: 50000.0,
+            radius: 500000.0,
             range: 50000.0,
             color: Color::rgb(1.0, 1.0, 1.0),
             ..Default::default()

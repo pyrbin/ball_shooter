@@ -3,8 +3,6 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use bevy::prelude::*;
 use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
 
-pub const FOREVER: f32 = std::f32::MAX;
-
 pub trait DebugLinesExt {
     fn circle(&mut self, origin: Vec3, rot: Quat, radius: f32, duration: f32, color: Color);
 }

@@ -29,6 +29,7 @@ features = ["bevy_asset", "bevy_winit", "render", "png", "x11"]
 [dependencies]
 bevy_kira_audio = "0.12"
 bevy_asset_loader = "0.12"
+bevy_embedded_assets = "0.4.0"
 bevy_mod_check_filter = "0.3.0"
 smooth-bevy-cameras = { git = "https://github.com/bonsairobo/smooth-bevy-cameras" }
 bevy_rapier3d = "0.16.2"

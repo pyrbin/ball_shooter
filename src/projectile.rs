@@ -1,5 +1,4 @@
-use bevy::{input::keyboard::KeyboardInput, prelude::*};
-use bevy_inspector_egui::egui::Key;
+use bevy::prelude::*;
 use bevy_mod_check_filter::{IsFalse, IsTrue};
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_rapier3d::prelude::*;
@@ -121,9 +120,9 @@ fn projectile_reload(
 }
 
 fn move_down_and_spawn(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    commands: Commands,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<StandardMaterial>>,
     mut grid: ResMut<grid::Grid>,
     keyboard: Res<Input<KeyCode>>,
 ) {
@@ -151,8 +150,8 @@ fn aim_projectile(
         let mut point = utils::plane_intersection(ray_pos, ray_dir, plane_pos, plane_normal);
         point.y = 0.0;
 
-        const Z_OFFSET: f32 = -1.;
         // TODO(pyrbin): use angle instead
+        const Z_OFFSET: f32 = -1.;
         point.z = point.z.min(transform.translation.z + Z_OFFSET);
 
         lines.line_colored(transform.translation, point, 0.0, Color::GREEN);
@@ -161,7 +160,7 @@ fn aim_projectile(
             return;
         }
 
-        const PROJECTILE_SPEED: f32 = 80.;
+        const PROJECTILE_SPEED: f32 = 50.;
         let aim_direction = (point - transform.translation).normalize();
         vel.linvel = aim_direction * PROJECTILE_SPEED;
 
@@ -246,7 +245,7 @@ fn on_ball_hit_event(
         let mut translation = tr.translation;
         let mut hex = grid.hex_coords(translation);
 
-        // Hard check to make sure the projectile is inside the grid bounds.
+        // hard check to make sure the projectile is inside the grid bounds.
         let (hex_radius, _) = grid.hex_world_size();
         const SKIN_WIDTH: f32 = 0.1;
         let radius = hex_radius + SKIN_WIDTH;
@@ -300,7 +299,7 @@ fn on_ball_hit_event(
             },
         });
 
-        // Remove matching clusters
+        // remove matching clusters
         const MIN_CLUSTER_SIZE: usize = 3;
         if cluster.len() >= MIN_CLUSTER_SIZE {
             cluster.iter().for_each(|&hex| {
@@ -309,7 +308,7 @@ fn on_ball_hit_event(
             });
         }
 
-        // Remove floating clusters
+        // remove floating clusters
         let floating_clusters = grid::find_floating_clusters(&grid);
         floating_clusters
             .iter()

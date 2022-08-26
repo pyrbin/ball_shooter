@@ -2,8 +2,6 @@ use bevy::prelude::*;
 use bevy_prototype_debug_lines::DebugLines;
 use std::collections::{HashMap, HashSet};
 
-use crate::debug::{self, DebugLinesExt};
-
 use super::{
     ball::{self, BallBundle},
     hex, AppState,
@@ -193,16 +191,14 @@ pub fn move_down_and_spawn(
     mut materials: ResMut<Assets<StandardMaterial>>,
     grid: &mut Grid,
 ) {
-    // Move all down
     for (&hex, &entity) in grid.storage.iter() {
         let dst = hex.down(&grid.layout);
         commands.entity(entity).insert(dst);
     }
 
-    // Spawn new row
     for hex in hex::rectangle(grid.columns(), 1, grid.layout.orientation) {
         let world_pos = grid.world_pos_y(hex, 0.0);
-        let entity = commands
+        commands
             .spawn_bundle(BallBundle::new(
                 world_pos,
                 grid.layout.size.x,
@@ -213,8 +209,7 @@ pub fn move_down_and_spawn(
             .insert(hex)
             .insert(Name::new(
                 format!("hex::Hex {:?}, {:?}", hex.q, hex.r).to_string(),
-            ))
-            .id();
+            ));
     }
 }
 
@@ -245,6 +240,7 @@ fn generate_grid(
     }
 
     grid.ensure_centered();
+
     commands.remove_resource::<GenerateGrid>();
 }
 
@@ -324,7 +320,7 @@ impl Plugin for GridPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Grid {
             layout: hex::Layout {
-                orientation: hex::Orientation::Pointy ,
+                orientation: hex::Orientation::Pointy,
                 origin: Vec2::new(0.0, 0.0),
                 size: Vec2::new(2.0, 2.0),
             },
