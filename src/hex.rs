@@ -1,75 +1,40 @@
-use bevy::prelude::*;
 use std::{f32::consts::PI, ops::Add};
 
-// TODO: most functions are only tested on Orientation.Pointy
-// probly doesn't work for Orientation.Flat
+use bevy::prelude::*;
 
 pub const INNER_RADIUS_COEFF: f32 = 0.866025404;
 
 const SQRT_3: f32 = 1.732_f32;
 
-/// A hex cell at a given position.
-#[derive(Component, Debug, Copy, Clone, Default, Eq, PartialEq, Hash)]
-pub struct Hex {
+/// A hex in axial-coordinates.
+#[derive(Component, Debug, Default, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Coord {
     pub q: i32,
     pub r: i32,
 }
 
-impl Hex {
-    // Create a new hex with the offset coordinates `q` and `r`.
-    #[inline(always)]
+impl Coord {
+    /// Create a hex axial-coordinate on `q` and `r` axis.
+    #[inline]
     pub fn new(q: i32, r: i32) -> Self {
         Self { q, r }
     }
 
-    #[inline]
-    pub fn is_even(self, layout: &Layout) -> bool {
-        let (q, r) = self.into();
-        match layout.orientation {
-            Orientation::Flat => q % 2 == 0,
-            Orientation::Pointy => r % 2 == 0,
-        }
+    pub fn neighbor(self, dir: Direction) -> Self {
+        self + dir.offset()
     }
 
-    #[inline]
-    pub fn is_odd(self, layout: &Layout) -> bool {
-        !self.is_even(layout)
-    }
-
-    #[inline]
-    pub fn down(self, layout: &Layout) -> Self {
-        self.neighbor(
-            match layout.orientation {
-                Orientation::Flat => Direction::S,
-                Orientation::Pointy => match self.is_even(layout) {
-                    true => Direction::SE,
-                    false => Direction::S,
-                },
-            },
-            layout,
-        )
-    }
-
-    #[inline]
-    pub fn neighbor(self, dir: Direction, layout: &Layout) -> Self {
-        match self.is_even(layout) {
-            true => self + dir.offset_even(),
-            false => self + dir.offset_odd(),
-        }
-    }
-
-    #[inline]
-    pub fn neighbors(self, layout: &Layout) -> [Self; 6] {
+    pub fn neighbors(&self) -> [Self; 6] {
         Direction::all()
             .iter()
-            .map(|d| self.neighbor(*d, layout))
-            .collect::<Vec<Hex>>()
+            .map(|d| self.neighbor(*d))
+            .collect::<Vec<Coord>>()
             .try_into()
             .unwrap()
     }
 }
 
-impl Add<Hex> for Hex {
+impl Add<Coord> for Coord {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self {
@@ -80,106 +45,138 @@ impl Add<Hex> for Hex {
     }
 }
 
-impl From<Hex> for (i32, i32) {
+impl From<Coord> for (i32, i32) {
     #[inline]
-    fn from(h: Hex) -> Self {
+    fn from(h: Coord) -> Self {
         (h.q, h.r)
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Default, Debug, Copy, Clone)]
+pub struct Bounds {
+    pub mins: Vec2,
+    pub maxs: Vec2,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Direction {
-    N,
-    NE,
-    SE,
-    S,
-    SW,
-    NW,
+    /// (1, 0)
+    A,
+    /// (1, -1)
+    B,
+    /// (0, -1)
+    C,
+    /// (-1, 0)
+    D,
+    /// (-1, 1)
+    E,
+    /// (0, 1)
+    F,
 }
 
 impl Direction {
+    /// ```txt
+    ///            x Axis
+    ///            ___
+    ///           /   \
+    ///       +--+  2  +--+
+    ///      / 3  \___/  1 \
+    ///      \    /   \    /
+    ///       +--+     +--+
+    ///      /    \___/    \
+    ///      \ 4  /   \  0 /
+    ///       +--+  5  +--+   y Axis
+    ///           \___/
+    /// ```
     pub fn all() -> &'static [Direction; 6] {
         &[
-            Direction::N,
-            Direction::NE,
-            Direction::SE,
-            Direction::S,
-            Direction::SW,
-            Direction::NW,
+            Direction::A,
+            Direction::B,
+            Direction::C,
+            Direction::D,
+            Direction::E,
+            Direction::F,
         ]
     }
-
-    pub fn offset_even(self) -> Hex {
+    pub fn offset(&self) -> Coord {
         match self {
-            Direction::N => Hex::new(1, -1),
-            Direction::NE => Hex::new(1, 0),
-            Direction::SE => Hex::new(0, 1),
-            Direction::S => Hex::new(-1, 1),
-            Direction::SW => Hex::new(-1, 0),
-            Direction::NW => Hex::new(0, -1),
-        }
-    }
-
-    pub fn offset_odd(self) -> Hex {
-        match self {
-            Direction::N => Hex::new(1, -1),
-            Direction::NE => Hex::new(-1, 0),
-            Direction::SE => Hex::new(0, 1),
-            Direction::S => Hex::new(-1, 1),
-            Direction::SW => Hex::new(1, 0),
-            Direction::NW => Hex::new(0, -1),
+            Direction::A => Coord::new(1, 0),
+            Direction::B => Coord::new(1, -1),
+            Direction::C => Coord::new(0, -1),
+            Direction::D => Coord::new(-1, 0),
+            Direction::E => Coord::new(-1, 1),
+            Direction::F => Coord::new(0, 1),
         }
     }
 }
 
-/// Hex orientation.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Orientation {
-    Flat,
-    Pointy,
+/// Hexagon orientation coefficients. Often times either [Orientation.pointy] or [Orientation.flat] orientation is used.
+#[derive(Debug, Clone)]
+pub struct Orientation {
+    fwd_matrix: [f32; 4],
+    inv_matrix: [f32; 4],
+    angle: f32,
 }
 
-/// Transforms for a hexagonal grid to world space.
-pub struct OrientationTransform {
-    pub fwd_matrix: [f32; 4],
-    pub inv_matrix: [f32; 4],
-    pub angle: f32,
-}
-
-const POINTY: OrientationTransform = OrientationTransform {
+const POINTY: Orientation = Orientation {
     fwd_matrix: [SQRT_3, SQRT_3 / 2.0, 0.0, 3.0 / 2.0],
     inv_matrix: [SQRT_3 / 3.0, -1.0 / 3.0, 0.0, 2.0 / 3.0],
     angle: 0.5,
 };
 
-const FLAT: OrientationTransform = OrientationTransform {
+const FLAT: Orientation = Orientation {
     fwd_matrix: [3.0 / 2.0, 0.0, SQRT_3 / 2.0, SQRT_3],
     inv_matrix: [2.0 / 3.0, 0.0, -1.0 / 3.0, SQRT_3 / 3.0],
     angle: 0.0,
 };
 
 impl Orientation {
-    #[inline]
-    pub fn transform(self) -> OrientationTransform {
-        match self {
-            Orientation::Flat => FLAT,
-            Orientation::Pointy => POINTY,
-        }
+    pub fn pointy() -> &'static Self {
+        &POINTY
+    }
+
+    pub fn flat() -> &'static Self {
+        &FLAT
     }
 }
 
-/// A hexagonal grid layout.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Layout {
     pub orientation: Orientation,
-    pub origin: Vec2,
     pub size: Vec2,
+    pub origin: Vec2,
 }
 
 impl Layout {
-    #[inline]
-    pub fn hex_to_world(&self, hex: Hex) -> Vec2 {
-        let matrix = self.orientation.transform().fwd_matrix;
+    pub fn new(orientation: &Orientation, size: Vec2, origin: Vec2) -> Self {
+        Layout {
+            orientation: orientation.clone(),
+            size,
+            origin,
+        }
+    }
+
+    pub fn is_pointy(&self) -> bool {
+        (f32::from(self.orientation.angle) - 0.5).abs() <= 0.1
+    }
+
+    pub fn is_flat(&self) -> bool {
+        f32::from(self.orientation.angle).abs() <= 0.1
+    }
+
+    /// Create a hex axial-coordinate from world `pos`.
+    pub fn from_world(&self, pos: Vec3) -> Coord {
+        let pos_2d = Vec2::new(pos.x, pos.z);
+        let matrix = self.orientation.inv_matrix;
+        let point = (pos_2d - self.origin) / self.size;
+        let x = matrix[0].mul_add(point.x, matrix[1] * point.y);
+        let y = matrix[2].mul_add(point.x, matrix[3] * point.y);
+        Coord::new(x.round() as i32, y.round() as i32)
+    }
+
+    /// Convert a hex axial-coordinate to world position.
+    pub fn to_world(&self, hex: Coord) -> Vec2 {
+        let matrix = self.orientation.fwd_matrix;
         let (sx, sy) = self.size.into();
         let (ox, oy) = self.origin.into();
         Vec2::new(
@@ -188,62 +185,72 @@ impl Layout {
         )
     }
 
-    #[inline]
-    pub fn world_to_hex(&self, pos: Vec2) -> Hex {
-        let matrix = self.orientation.transform().inv_matrix;
-        let point = (pos - self.origin) / self.size;
-        let x = matrix[0].mul_add(point.x, matrix[1] * point.y);
-        let y = matrix[2].mul_add(point.x, matrix[3] * point.y);
-        Hex::new(x.round() as i32, y.round() as i32)
+    /// Convert a hex axial-coordinate to world position with given `y` value.
+    pub fn to_world_y(&self, hex: Coord, y: f32) -> Vec3 {
+        let pos = self.to_world(hex);
+        Vec3::new(pos.x, y, pos.y)
     }
 
-    #[inline]
-    pub fn hex_corners(&self, hex: Hex) -> [Vec2; 6] {
-        let center = self.hex_to_world(hex);
+    /// Returns the world position of the hex corners.
+    pub fn hex_corners(&self, hex: Coord) -> [Vec2; 6] {
+        let center = self.to_world(hex);
         [0, 1, 2, 3, 4, 5].map(|corner| {
-            let angle = PI * 2.0 * (self.orientation.transform().angle + corner as f32) / 6.;
+            let angle = PI * 2.0 * (self.orientation.angle + corner as f32) / 6.;
             center + Vec2::new(self.size.x * angle.cos(), self.size.y * angle.sin())
         })
     }
 
-    #[inline]
-    pub fn hex_world_size(&self) -> (f32, f32) {
-        let (sx, sy) = self.size.into();
-        let sx = match self.orientation {
-            Orientation::Flat => sx,
-            Orientation::Pointy => sx * INNER_RADIUS_COEFF,
-        };
+    /// Returns the rectangal bounding box of a hex.
+    pub fn hex_rect_bounds(&self, hex: Coord) -> Bounds {
+        let mut x_min = f32::NAN;
+        let mut x_max = f32::NAN;
+        let mut y_min = f32::NAN;
+        let mut y_max = f32::NAN;
+        for point in self.hex_corners(hex).iter() {
+            x_min = x_min.min(point.x);
+            x_max = x_max.max(point.x);
+            y_min = y_min.min(point.y);
+            y_max = y_max.max(point.y);
+        }
+        Bounds {
+            mins: Vec2::new(x_min, y_min),
+            maxs: Vec2::new(x_max, y_max),
+        }
+    }
 
-        let sy = match self.orientation {
-            Orientation::Flat => sy * INNER_RADIUS_COEFF,
-            Orientation::Pointy => sy,
-        };
-        (sx, sy)
+    /// Returns the hex width and height.
+    pub fn hex_size(&self) -> (f32, f32) {
+        let (sx, sy) = self.size.into();
+        if self.is_pointy() {
+            (sx * INNER_RADIUS_COEFF, sy)
+        } else {
+            (sx, sy * INNER_RADIUS_COEFF)
+        }
     }
 }
 
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            orientation: Orientation::Pointy,
+            orientation: Orientation::pointy().clone(),
             origin: Vec2::new(0.0, 0.0),
             size: Vec2::new(1.0, 1.0),
         }
     }
 }
 
-/// Generates a rectangle layout with given width `w` and height `h` on given orientation `o`.
-pub fn rectangle(w: i32, h: i32, o: Orientation) -> impl Iterator<Item = Hex> {
-    match o {
-        Orientation::Flat => rectangle_flat(w, h),
-        Orientation::Pointy => rectangle_pointy(w, h),
+/// Generates a rectangle odd-r shape with given width `w` and height `h` on given layout `layout`.
+pub fn rectangle(w: i32, h: i32, layout: &Layout) -> impl Iterator<Item = Coord> {
+    match layout.is_pointy() {
+        true => rectangle_pointy(w, h),
+        false => rectangle_flat(w, h),
     }
 }
 
-fn rectangle_pointy(w: i32, h: i32) -> Box<dyn Iterator<Item = Hex>> {
-    Box::new((0..=h).flat_map(move |y| (0 - (y >> 1)..w - (y >> 1)).map(move |x| Hex::new(x, y))))
+fn rectangle_pointy(w: i32, h: i32) -> Box<dyn Iterator<Item = Coord>> {
+    Box::new((0..=h).flat_map(move |y| (0 - (y >> 1)..w - (y >> 1)).map(move |x| Coord::new(x, y))))
 }
 
-fn rectangle_flat(w: i32, h: i32) -> Box<dyn Iterator<Item = Hex>> {
-    Box::new((0..=w).flat_map(move |x| (0 - (x >> 1)..h - (x >> 1)).map(move |y| Hex::new(x, y))))
+fn rectangle_flat(w: i32, h: i32) -> Box<dyn Iterator<Item = Coord>> {
+    Box::new((0..=w).flat_map(move |x| (0 - (x >> 1)..h - (x >> 1)).map(move |y| Coord::new(x, y))))
 }

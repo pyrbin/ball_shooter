@@ -3,29 +3,20 @@ use bevy_mod_check_filter::{IsFalse, IsTrue};
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_rapier3d::prelude::*;
 
+use crate::{gameplay, hex};
+
 use super::{
-    ball::{self, BallBundle, Species},
+    ball::{self, Species},
     grid, utils, AppState, MainCamera,
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 pub enum ProjectileStage {
-    PostPhysics,
+    Update,
 }
 
 #[derive(Component, Clone, Default)]
 pub struct Projectile;
-
-#[derive(Clone)]
-pub struct BallHitEvent {
-    /// Entity of the ball that was hit.
-    pub entity: Entity,
-    /// Hit normal outwards from the projectile.
-    pub hit_normal: Vec3,
-}
-
-#[derive(Component, Clone, Default)]
-pub struct ReloadProjectile;
 
 #[derive(Component)]
 pub struct Flying(pub bool);
@@ -36,6 +27,26 @@ impl std::ops::Deref for Flying {
         &self.0
     }
 }
+
+#[derive(Clone)]
+pub struct SnapProjectile {
+    /// Entity of the ball if any were hit.
+    pub entity: Option<Entity>,
+    /// Hit normal outwards from the projectile if any ball were hit.
+    pub hit_normal: Option<Vec3>,
+}
+
+#[derive(Clone)]
+pub struct SpawnedBall {
+    pub hex: hex::Coord,
+    pub species: ball::Species,
+}
+
+#[derive(Clone)]
+pub struct ReloadProjectile;
+
+#[derive(Clone)]
+pub struct ProjectileBuffer(pub Vec<ball::Species>);
 
 /// We apply a tiny reduction to the projectile collider radius.
 pub const PROJ_COLLIDER_COEFF: f32 = 0.783;
@@ -96,39 +107,34 @@ impl Default for ProjectileBundle {
     }
 }
 
-fn setup_shooting(mut commands: Commands) {
-    commands.spawn().insert(ReloadProjectile);
-}
-
 fn projectile_reload(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    trigger: Query<Entity, With<ReloadProjectile>>,
+    mut buffer: ResMut<ProjectileBuffer>,
+    begin_turn: EventReader<gameplay::BeginTurn>,
     grid: Res<grid::Grid>,
 ) {
-    if let Ok(trigger) = trigger.get_single() {
-        commands.entity(trigger).despawn();
-        commands.spawn_bundle(ProjectileBundle::new(
-            Vec3::new(0.0, 0.0, 40.0),
-            grid.layout.size.x,
-            ball::random_species(),
-            &mut meshes,
-            &mut materials,
-        ));
+    if begin_turn.is_empty() {
+        return;
     }
-}
 
-fn move_down_and_spawn(
-    commands: Commands,
-    meshes: ResMut<Assets<Mesh>>,
-    materials: ResMut<Assets<StandardMaterial>>,
-    mut grid: ResMut<grid::Grid>,
-    keyboard: Res<Input<KeyCode>>,
-) {
-    if keyboard.just_pressed(KeyCode::Space) {
-        grid::move_down_and_spawn(commands, meshes, materials, grid.as_mut());
-    }
+    begin_turn.clear();
+
+    let species = match buffer.0.pop() {
+        Some(species) => species,
+        None => ball::random_species(),
+    };
+
+    commands.spawn_bundle(ProjectileBundle::new(
+        Vec3::new(0.0, 0.0, gameplay::PLAYER_SPAWN_Z),
+        grid.layout.size.x,
+        species,
+        &mut meshes,
+        &mut materials,
+    ));
+
+    buffer.0.push(ball::random_species());
 }
 
 fn aim_projectile(
@@ -150,9 +156,8 @@ fn aim_projectile(
         let mut point = utils::plane_intersection(ray_pos, ray_dir, plane_pos, plane_normal);
         point.y = 0.0;
 
-        // TODO(pyrbin): use angle instead
-        const Z_OFFSET: f32 = -1.;
-        point.z = point.z.min(transform.translation.z + Z_OFFSET);
+        // should use an angle instead
+        point.z = point.z.min(transform.translation.z);
 
         lines.line_colored(transform.translation, point, 0.0, Color::GREEN);
 
@@ -160,7 +165,7 @@ fn aim_projectile(
             return;
         }
 
-        const PROJECTILE_SPEED: f32 = 50.;
+        const PROJECTILE_SPEED: f32 = 30.;
         let aim_direction = (point - transform.translation).normalize();
         vel.linvel = aim_direction * PROJECTILE_SPEED;
 
@@ -170,6 +175,7 @@ fn aim_projectile(
 
 fn bounce_on_world_bounds(
     mut projectile: Query<(Entity, &mut Transform, &mut Velocity, &Collider), IsTrue<Flying>>,
+    mut snap_projectile: EventWriter<SnapProjectile>,
     grid: Res<grid::Grid>,
 ) {
     if let Ok((_, mut transform, mut vel, collider)) = projectile.get_single_mut() {
@@ -177,35 +183,59 @@ fn bounce_on_world_bounds(
             const SKIN_WIDTH: f32 = 0.1;
             let skin = shape.radius + SKIN_WIDTH;
 
-            let (clamped, was_clamped) =
-                clamp_inside_world_bounds(transform.translation, skin, grid.bounds.0);
+            let (clamped, was_clamped_x, was_clamped_y) =
+                clamp_inside_world_bounds(transform.translation, skin, &grid.bounds);
 
             transform.translation = clamped;
 
-            if was_clamped {
+            if was_clamped_x {
                 vel.linvel.x = -vel.linvel.x;
+            }
+
+            // We hit the top, snap ball
+            if was_clamped_y {
+                vel.linvel = Vec3::ZERO;
+                snap_projectile.send(SnapProjectile {
+                    entity: None,
+                    hit_normal: None,
+                });
             }
         }
     }
 }
 
-fn clamp_inside_world_bounds(mut pos: Vec3, size: f32, x_bounds: Vec2) -> (Vec3, bool) {
-    let x = pos.x;
-    let mut clamped = false;
+pub fn clamp_inside_world_bounds(
+    mut pos: Vec3,
+    size: f32,
+    grid_bounds: &hex::Bounds,
+) -> (Vec3, bool, bool) {
+    let (x, _, y) = pos.into();
+
+    let mut clamped_x = false;
+    let mut clamped_y = false;
+
     let (x0, x1) = (x - size, x + size);
-    if x0 <= x_bounds.x {
-        pos.x = x_bounds.x + size;
-        clamped = true;
-    } else if x1 >= x_bounds.y {
-        pos.x = x_bounds.y - size;
-        clamped = true;
+    let y1 = y - size;
+
+    if x0 <= grid_bounds.mins.x {
+        pos.x = grid_bounds.mins.x + size;
+        clamped_x = true;
+    } else if x1 >= grid_bounds.maxs.x {
+        pos.x = grid_bounds.maxs.x - size;
+        clamped_x = true;
     }
-    (pos, clamped)
+
+    if y1 <= grid_bounds.mins.y {
+        pos.y = grid_bounds.mins.y - size;
+        clamped_y = true;
+    }
+
+    (pos, clamped_x, clamped_y)
 }
 
 fn on_projectile_collisions_events(
     mut collision_events: EventReader<CollisionEvent>,
-    mut ball_hit_write: EventWriter<BallHitEvent>,
+    mut snap_projectile: EventWriter<SnapProjectile>,
     mut projectile: Query<(Entity, &mut Velocity, &Transform), (With<Projectile>, IsTrue<Flying>)>,
     balls: Query<(Entity, &Transform), With<ball::Ball>>,
 ) {
@@ -222,127 +252,41 @@ fn on_projectile_collisions_events(
             let (_, mut vel, tr) = p1.unwrap();
             let hit_normal = (otr.translation - tr.translation).normalize();
             vel.linvel = Vec3::ZERO;
-            ball_hit_write.send(BallHitEvent { entity, hit_normal });
+            snap_projectile.send(SnapProjectile {
+                entity: Some(entity),
+                hit_normal: Some(hit_normal),
+            });
         }
     }
 }
 
-fn on_ball_hit_event(
-    ball_hits: EventReader<BallHitEvent>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut grid: ResMut<grid::Grid>,
-    projectile: Query<(Entity, &Transform, &ball::Species), (With<Projectile>, IsTrue<Flying>)>,
-    balls: Query<&ball::Species, With<ball::Ball>>,
-) {
-    if ball_hits.is_empty() {
-        return;
-    }
-
-    if let Ok((entity, tr, species)) = projectile.get_single() {
-        let y = tr.translation.y;
-        let mut translation = tr.translation;
-        let mut hex = grid.hex_coords(translation);
-
-        // hard check to make sure the projectile is inside the grid bounds.
-        let (hex_radius, _) = grid.hex_world_size();
-        const SKIN_WIDTH: f32 = 0.1;
-        let radius = hex_radius + SKIN_WIDTH;
-        let (clamped, was_clamped) =
-            clamp_inside_world_bounds(grid.world_pos_y(hex, y), radius, grid.bounds.0);
-        if was_clamped {
-            hex = grid.hex_coords(clamped);
-        }
-
-        // Dumb iterative check to make sure chosen hex is not occupied.
-        const MAX_ITER: usize = 10;
-        let mut iter = 0;
-        while let Some(_) = grid.get(hex) {
-            let step_size = Vec3::Z * radius;
-            translation += step_size;
-            (translation, _) = clamp_inside_world_bounds(translation, radius, grid.bounds.0);
-
-            hex = grid.hex_coords(translation);
-
-            iter += 1;
-            if iter >= MAX_ITER {
-                break;
-            }
-        }
-
-        commands.entity(entity).despawn();
-        commands.spawn().insert(ReloadProjectile);
-
-        let final_pos = grid.world_pos_y(hex, y);
-        let ball = commands
-            .spawn_bundle(BallBundle::new(
-                final_pos,
-                grid.layout.size.x,
-                *species,
-                &mut meshes,
-                &mut materials,
-            ))
-            .insert(hex)
-            .insert(Name::new(
-                format!("Hex {:?}, {:?}", hex.q, hex.r).to_string(),
-            ))
-            .id();
-
-        grid.set(hex, Some(ball));
-
-        let (cluster, _) = grid::find_cluster(&grid, hex, |e| match *e == ball {
-            true => true,
-            false => match balls.get(*e) {
-                Ok(other) => other == species,
-                Err(_) => false,
-            },
-        });
-
-        // remove matching clusters
-        const MIN_CLUSTER_SIZE: usize = 3;
-        if cluster.len() >= MIN_CLUSTER_SIZE {
-            cluster.iter().for_each(|&hex| {
-                commands.entity(*grid.get(hex).unwrap()).despawn();
-                grid.set(hex, None);
-            });
-        }
-
-        // remove floating clusters
-        let floating_clusters = grid::find_floating_clusters(&grid);
-        floating_clusters
-            .iter()
-            .flat_map(|e| e.iter())
-            .for_each(|&hex| {
-                commands.entity(*grid.get(hex).unwrap()).despawn();
-                grid.set(hex, None);
-            });
-    }
+fn cleanup_projectile(mut commands: Commands, projectile: Query<Entity, With<Projectile>>) {
+    commands.entity(projectile.single()).despawn_recursive();
 }
 
 pub struct ProjectilePlugin;
 
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<BallHitEvent>();
-        app.add_system_set(SystemSet::on_enter(AppState::Next).with_system(setup_shooting));
+        app.add_event::<SnapProjectile>();
+        app.add_event::<SpawnedBall>();
+        app.insert_resource(ProjectileBuffer(vec![ball::random_species()]));
         app.add_system_set(
-            SystemSet::on_update(AppState::Next)
-                .with_system(move_down_and_spawn)
+            SystemSet::on_update(AppState::Gameplay)
                 .with_system(projectile_reload)
                 .with_system(aim_projectile),
         );
         app.add_stage_before(
             PhysicsStages::SyncBackend,
-            ProjectileStage::PostPhysics,
+            ProjectileStage::Update,
             SystemStage::single_threaded(),
         );
         app.add_system_set_to_stage(
-            ProjectileStage::PostPhysics,
+            ProjectileStage::Update,
             SystemSet::new()
                 .with_system(bounce_on_world_bounds)
-                .with_system(on_projectile_collisions_events)
-                .with_system(on_ball_hit_event),
+                .with_system(on_projectile_collisions_events),
         );
+        app.add_system_set(SystemSet::on_exit(AppState::Gameplay).with_system(cleanup_projectile));
     }
 }

@@ -1,36 +1,36 @@
 mod ball;
 mod debug;
 mod diagnostics;
+mod gameplay;
 mod grid;
 mod hex;
 mod loading;
 mod projectile;
+mod start_menu;
 mod utils;
 
 use crate::debug::*;
 use crate::diagnostics::*;
+use crate::gameplay::*;
 use crate::grid::*;
 use crate::loading::*;
 use crate::projectile::*;
+use crate::start_menu::*;
 
 use bevy::prelude::*;
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use bevy_rapier3d::prelude::*;
-use smooth_bevy_cameras::{
-    controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
-    LookTransformPlugin,
-};
+use smooth_bevy_cameras::{controllers::orbit::OrbitCameraPlugin, LookTransformPlugin};
 
 pub const WINDOW_TITLE: &str = "bevy app";
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
 enum AppState {
     Loading,
-    Next,
+    Menu,
+    Gameplay,
+    GameOver,
 }
-
-#[derive(Component)]
-pub struct MainCamera;
 
 pub fn app() -> App {
     let mut app = App::new();
@@ -41,12 +41,17 @@ pub fn app() -> App {
     app.add_plugin(OrbitCameraPlugin::default());
     app.add_plugin(RapierPhysicsPlugin::<()>::default());
 
+    #[cfg(debug_assertions)]
     app.add_plugin(DiagnosticsPlugin);
-    app.add_plugin(DebugPlugin);
 
+    app.add_plugin(DebugPlugin);
     app.add_plugin(LoadingPlugin);
+
+    // Gameplay plugins
     app.add_plugin(ProjectilePlugin);
+    app.add_plugin(GameplayPlugin);
     app.add_plugin(GridPlugin);
+    app.add_plugin(StartMenuPlugin);
 
     app.insert_resource(Msaa { samples: 4 });
     app.insert_resource(ClearColor(Color::rgb(0.4, 0.4, 0.4)));
@@ -58,35 +63,5 @@ pub fn app() -> App {
         ..Default::default()
     });
     app.add_state(AppState::Loading);
-    app.add_system_set(
-        SystemSet::on_enter(AppState::Next)
-            .with_system(setup_level)
-            .with_system(setup_camera),
-    );
     app
-}
-
-fn setup_level(mut commands: Commands) {
-    commands.spawn_bundle(PointLightBundle {
-        point_light: PointLight {
-            intensity: 5000.0,
-            radius: 500000.0,
-            range: 50000.0,
-            color: Color::rgb(1.0, 1.0, 1.0),
-            ..Default::default()
-        },
-        transform: Transform::from_xyz(0.0, 15.0, 0.0),
-        ..default()
-    });
-}
-
-fn setup_camera(mut commands: Commands) {
-    commands
-        .spawn_bundle(Camera3dBundle::default())
-        .insert_bundle(OrbitCameraBundle::new(
-            OrbitCameraController::default(),
-            Vec3::new(0., 15., 0.),
-            Vec3::new(0., 0., 0.),
-        ))
-        .insert(MainCamera);
 }

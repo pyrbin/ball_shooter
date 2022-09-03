@@ -30,7 +30,7 @@ impl Plugin for LoadingPlugin {
                 .with_collection::<FontAssets>()
                 .with_collection::<AudioAssets>()
                 .with_collection::<TextureAssets>()
-                .continue_to_state(AppState::Next),
+                .continue_to_state(AppState::Menu),
         );
     }
 }
