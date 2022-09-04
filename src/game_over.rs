@@ -13,8 +13,8 @@ pub struct Root;
 impl Default for ButtonColors {
     fn default() -> Self {
         ButtonColors {
-            normal: Color::rgb(0.15, 0.15, 0.15).into(),
-            hovered: Color::rgb(0.25, 0.25, 0.25).into(),
+            normal: Color::rgb(1., 0.1, 0.1).into(),
+            hovered: Color::rgb(1., 0.35, 0.35).into(),
         }
     }
 }
@@ -36,7 +36,7 @@ fn setup_menu(
                 flex_direction: FlexDirection::ColumnReverse,
                 ..Default::default()
             },
-            color: Color::rgb(0.4, 0.4, 0.4).into(),
+            color: Color::rgb(0.1, 0.1, 0.1).into(),
             ..Default::default()
         })
         .insert(Root)
