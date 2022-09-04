@@ -4,10 +4,6 @@ use image;
 use std::io::Cursor;
 use winit::window::Icon;
 
-/// https://deterministic.space/high-performance-rust.html#mimalloc
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 fn main() {
     let mut app = ball_shooter::app();
     app.add_startup_system(set_window_icon);

@@ -45,11 +45,7 @@ bevy_egui = "0.15.1"
 bevy-inspector-egui = "0.12.1"
 bevy_prototype_debug_lines = { version = "0.8", features = ["3d"] }
 bevy-web-resizer = "3.0"
-
 rand = "0.8.3"
-
-# https://deterministic.space/high-performance-rust.html#mimalloc
-mimalloc = { version = "0.1.17", default-features = false }
 
 # Keep the following in sync with Bevy's dependencies
 winit = { version = "0.26.0", default-features = false }
