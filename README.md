@@ -11,3 +11,7 @@ My first ever rust & bevy project. A simple clone of the classic bubble shooter 
 ### build
 
 `cargo build --release`
+
+### TODO
+
+- Fix `find_clusters` logic (currently not working perfectly)
