@@ -1,6 +1,9 @@
-use crate::loading::FontAssets;
+use std::time::Duration;
+
+use crate::loading::{AudioAssets, FontAssets};
 use crate::AppState;
 use bevy::prelude::*;
+use bevy_kira_audio::prelude::*;
 
 struct ButtonColors {
     normal: UiColor,
@@ -14,6 +17,24 @@ impl Default for ButtonColors {
             hovered: Color::rgb(0.25, 0.25, 0.25).into(),
         }
     }
+}
+
+struct SoundtrackAudio(Handle<AudioInstance>);
+
+fn start_audio(
+    mut commands: Commands,
+    audio_assets: Res<AudioAssets>,
+    audio: Res<bevy_kira_audio::Audio>,
+) {
+    audio.pause();
+    let handle = audio
+        .play(audio_assets.soundtrack.clone())
+        .looped()
+        .fade_in(AudioTween::linear(Duration::from_secs(5)))
+        .with_volume(0.4)
+        .handle();
+
+    commands.insert_resource(SoundtrackAudio(handle));
 }
 
 fn setup_menu(
@@ -86,12 +107,14 @@ fn cleanup_menu(
 
 pub struct StartMenuPlugin;
 
-/// This plugin is responsible for the game menu (containing only one button...)
-/// The menu is only drawn during the State `GameState::Menu` and is removed when that state is exited
 impl Plugin for StartMenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ButtonColors>()
-            .add_system_set(SystemSet::on_enter(AppState::Menu).with_system(setup_menu))
+            .add_system_set(
+                SystemSet::on_enter(AppState::Menu)
+                    .with_system(setup_menu)
+                    .with_system(start_audio),
+            )
             .add_system_set(SystemSet::on_update(AppState::Menu).with_system(click_play_button))
             .add_system_set(SystemSet::on_exit(AppState::Menu).with_system(cleanup_menu));
     }

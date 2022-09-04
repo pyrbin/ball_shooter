@@ -2,6 +2,8 @@ use bevy::{prelude::*, utils::hashbrown::hash_map};
 use bevy_prototype_debug_lines::DebugLines;
 use std::collections::{HashMap, HashSet};
 
+use crate::loading::TextureAssets;
+
 use super::{
     ball::{self, BallBundle},
     hex, AppState,
@@ -167,6 +169,7 @@ pub fn move_down_and_spawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     grid: &mut Grid,
+    texture_assets: &Res<TextureAssets>,
 ) {
     let mut hash_map: HashMap<hex::Coord, Option<&Entity>> = HashMap::new();
     for (&hex, entity) in grid.storage.iter() {
@@ -197,6 +200,7 @@ pub fn move_down_and_spawn(
                 ball::random_species(),
                 &mut meshes,
                 &mut materials,
+                texture_assets,
             ))
             .insert(hex)
             .id();
@@ -211,6 +215,7 @@ fn generate_grid(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut grid: ResMut<Grid>,
     hexes: Query<Entity, With<hex::Coord>>,
+    texture_assets: Res<TextureAssets>,
 ) {
     for entity in hexes.iter() {
         commands.entity(entity).despawn();
@@ -219,7 +224,7 @@ fn generate_grid(
     grid.clear();
 
     const WIDTH: i32 = 16;
-    const HEIGHT: i32 = 18;
+    const HEIGHT: i32 = 16;
 
     for hex in hex::rectangle(WIDTH, HEIGHT, &grid.layout) {
         let world_pos = grid.layout.to_world_y(hex, 0.0);
@@ -230,6 +235,7 @@ fn generate_grid(
                 ball::random_species(),
                 &mut meshes,
                 &mut materials,
+                &texture_assets,
             ))
             .insert(hex)
             .id();

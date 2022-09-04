@@ -13,6 +13,10 @@ pub struct FontAssets {
 pub struct AudioAssets {
     #[asset(path = "audio/flying.ogg")]
     pub flying: Handle<AudioSource>,
+    #[asset(path = "audio/soundtrack.ogg")]
+    pub soundtrack: Handle<AudioSource>,
+    #[asset(path = "audio/score.ogg")]
+    pub score: Handle<AudioSource>,
 }
 
 #[derive(AssetCollection)]

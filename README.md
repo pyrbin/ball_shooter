@@ -1,6 +1,6 @@
 ## ball_shooter
 
-WIP a 3d bubble shooter clone written in `bevy`.
+My first ever rust & bevy project. A simple clone of the classic bubble shooter game (but probly with lots of bugs).
 
 ### run
 
@@ -10,10 +10,4 @@ WIP a 3d bubble shooter clone written in `bevy`.
 
 ### build
 
-native
-
 `cargo build --release`
-
-wasm
-
-`TODO`

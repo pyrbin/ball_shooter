@@ -1,9 +1,13 @@
 use bevy::prelude::*;
+use bevy_kira_audio::prelude::*;
 use bevy_mod_check_filter::{IsFalse, IsTrue};
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_rapier3d::prelude::*;
 
-use crate::{gameplay, hex};
+use crate::{
+    gameplay, hex,
+    loading::{AudioAssets, TextureAssets},
+};
 
 use super::{
     ball::{self, Species},
@@ -72,6 +76,7 @@ impl ProjectileBundle {
         species: Species,
         meshes: &mut ResMut<Assets<Mesh>>,
         materials: &mut ResMut<Assets<StandardMaterial>>,
+        texture_assets: &Res<TextureAssets>,
     ) -> Self {
         Self {
             pbr: PbrBundle {
@@ -79,7 +84,13 @@ impl ProjectileBundle {
                     subdivisions: 1,
                     radius: radius * ball::BALL_RADIUS_COEFF,
                 })),
-                material: materials.add(ball::species_to_color(species).into()),
+                material: materials.add(StandardMaterial {
+                    base_color: ball::species_to_color(species).into(),
+                    base_color_texture: Some(texture_assets.texture_bevy.clone()),
+                    alpha_mode: AlphaMode::Blend,
+                    unlit: true,
+                    ..default()
+                }),
                 transform: Transform::from_translation(pos),
                 ..Default::default()
             },
@@ -114,6 +125,7 @@ fn projectile_reload(
     mut buffer: ResMut<ProjectileBuffer>,
     begin_turn: EventReader<gameplay::BeginTurn>,
     grid: Res<grid::Grid>,
+    texture_assets: Res<TextureAssets>,
 ) {
     if begin_turn.is_empty() {
         return;
@@ -132,6 +144,7 @@ fn projectile_reload(
         species,
         &mut meshes,
         &mut materials,
+        &texture_assets,
     ));
 
     buffer.0.push(ball::random_species());
@@ -143,6 +156,8 @@ fn aim_projectile(
     mut projectile: Query<(Entity, &Transform, &mut Velocity, &mut Flying), IsFalse<Flying>>,
     mouse: Res<Input<MouseButton>>,
     mut lines: ResMut<DebugLines>,
+    audio: Res<bevy_kira_audio::Audio>,
+    audio_assets: Res<AudioAssets>,
 ) {
     if let Ok((_, transform, mut vel, mut is_flying)) = projectile.get_single_mut() {
         let (camera, camera_transform) = cameras.single();
@@ -157,13 +172,15 @@ fn aim_projectile(
         point.y = 0.0;
 
         // should use an angle instead
-        point.z = point.z.min(transform.translation.z);
+        point.z = point.z.min(transform.translation.z - 5.);
 
         lines.line_colored(transform.translation, point, 0.0, Color::GREEN);
 
         if !mouse.just_pressed(MouseButton::Left) {
             return;
         }
+
+        audio.play(audio_assets.flying.clone());
 
         const PROJECTILE_SPEED: f32 = 30.;
         let aim_direction = (point - transform.translation).normalize();
@@ -260,8 +277,18 @@ fn on_projectile_collisions_events(
     }
 }
 
+fn rotate_projectile(
+    mut query: Query<(Entity, &mut Transform), (With<Projectile>, IsTrue<Flying>)>,
+) {
+    for (_, mut transform) in query.iter_mut() {
+        transform.rotation *= Quat::from_rotation_z(0.1);
+    }
+}
+
 fn cleanup_projectile(mut commands: Commands, projectile: Query<Entity, With<Projectile>>) {
-    commands.entity(projectile.single()).despawn_recursive();
+    if !projectile.iter().next().is_none() {
+        commands.entity(projectile.single()).despawn_recursive();
+    }
 }
 
 pub struct ProjectilePlugin;
@@ -273,6 +300,7 @@ impl Plugin for ProjectilePlugin {
         app.insert_resource(ProjectileBuffer(vec![ball::random_species()]));
         app.add_system_set(
             SystemSet::on_update(AppState::Gameplay)
+                .with_system(rotate_projectile)
                 .with_system(projectile_reload)
                 .with_system(aim_projectile),
         );

@@ -1,8 +1,12 @@
-use crate::{ball, grid, hex, projectile, AppState};
-use bevy::prelude::*;
+use crate::{
+    ball, grid, hex,
+    loading::{AudioAssets, FontAssets, TextureAssets},
+    projectile, AppState,
+};
+use bevy::{prelude::*, render::camera::Projection};
+use bevy_kira_audio::prelude::*;
 use bevy_mod_check_filter::IsTrue;
 use bevy_prototype_debug_lines::DebugLines;
-use smooth_bevy_cameras::controllers::orbit::{OrbitCameraBundle, OrbitCameraController};
 
 #[derive(Component)]
 pub struct MainCamera;
@@ -50,6 +54,9 @@ fn on_snap_projectile(
         (With<projectile::Projectile>, IsTrue<projectile::Flying>),
     >,
     balls: Query<&ball::Species, With<ball::Ball>>,
+    texture_assets: Res<TextureAssets>,
+    audio: Res<bevy_kira_audio::Audio>,
+    audio_assets: Res<AudioAssets>,
 ) {
     if snap_projectile.is_empty() {
         return;
@@ -103,6 +110,7 @@ fn on_snap_projectile(
                 *species,
                 &mut meshes,
                 &mut materials,
+                &texture_assets,
             ))
             .insert(hex)
             .id();
@@ -141,9 +149,14 @@ fn on_snap_projectile(
             });
 
         const MOVE_DOWN_TURN: u32 = 5;
-
         if turn_counter.0 % MOVE_DOWN_TURN == 0 {
-            grid::move_down_and_spawn(&mut commands, meshes, materials, grid.as_mut());
+            grid::move_down_and_spawn(
+                &mut commands,
+                meshes,
+                materials,
+                grid.as_mut(),
+                &texture_assets,
+            );
         }
 
         // remove floating clusters
@@ -156,6 +169,10 @@ fn on_snap_projectile(
                 grid.set(hex, None);
                 score_add += 1;
             });
+
+        if score_add > 0 {
+            audio.play(audio_assets.score.clone());
+        }
 
         score.0 += score_add;
 
@@ -175,8 +192,8 @@ fn check_game_over(
     let row_pos = grid.layout.to_world_y(game_over_row, 0.0);
 
     lines.line_colored(
-        Vec3::new(40., 0., row_pos.z),
-        Vec3::new(-40., 0., row_pos.z),
+        Vec3::new(grid.bounds.mins.x, 0., row_pos.z),
+        Vec3::new(grid.bounds.maxs.x, 0., row_pos.z),
         0.,
         Color::RED,
     );
@@ -184,44 +201,57 @@ fn check_game_over(
     for (&hex, _) in grid.storage.iter() {
         let world_pos = grid.layout.to_world_y(hex, 0.0);
         if world_pos.z >= row_pos.z - 0.1 {
-            app_state.set(AppState::Menu).unwrap();
+            app_state.set(AppState::GameOver).unwrap();
             break;
         }
     }
 }
 
-fn setup_level(mut commands: Commands) {
-    commands.spawn_bundle(PointLightBundle {
-        point_light: PointLight {
-            intensity: 5000.0,
-            radius: 500000.0,
-            range: 50000.0,
-            color: Color::rgb(1.0, 1.0, 1.0),
-            ..Default::default()
+fn setup_camera(mut commands: Commands) {
+    commands
+        .spawn_bundle(Camera3dBundle {
+            projection: Projection::Perspective(PerspectiveProjection {
+                fov: 76.0,
+                ..default()
+            }),
+            transform: Transform::from_xyz(0.0, 70.0, 41.0)
+                .looking_at(Vec3::new(0.0, 0.0, PLAYER_SPAWN_Z / 2.), Vec3::Y),
+            ..default()
+        })
+        .insert(MainCamera);
+}
+
+fn setup_ui(mut commands: Commands, font_assets: Res<FontAssets>, score: Res<Score>) {
+    commands.spawn_bundle(TextBundle {
+        text: Text {
+            sections: vec![TextSection {
+                value: format!(" Score: {:?} ", score.0).to_string(),
+                style: TextStyle {
+                    font: font_assets.fira_sans.clone(),
+                    font_size: 40.0,
+                    color: Color::rgb(0.9, 0.9, 0.9),
+                },
+            }],
+            alignment: Default::default(),
         },
-        transform: Transform::from_xyz(0.0, 15.0, 0.0),
-        ..default()
+        transform: Transform::from_xyz(0.0, 100.0, 0.0),
+        ..Default::default()
     });
 }
 
-fn setup_camera(mut commands: Commands) {
-    commands
-        .spawn_bundle(Camera3dBundle::default())
-        .insert_bundle(OrbitCameraBundle::new(
-            OrbitCameraController::default(),
-            Vec3::new(0., 15., 0.),
-            Vec3::new(0., 0., 0.),
-        ))
-        .insert(MainCamera);
+fn update_ui(score: Res<Score>, mut score_text: Query<&mut Text>) {
+    for mut text in &mut score_text {
+        text.sections[0].value = format!(" Score: {:?} ", score.0);
+    }
 }
 
 fn cleanup_gameplay(
     mut commands: Commands,
     camera: Query<Entity, With<MainCamera>>,
-    light: Query<Entity, With<PointLight>>,
+    score_text: Query<Entity, With<Text>>,
 ) {
     commands.entity(camera.single()).despawn_recursive();
-    commands.entity(light.single()).despawn_recursive();
+    commands.entity(score_text.single()).despawn_recursive();
 }
 
 pub struct GameplayPlugin;
@@ -233,12 +263,13 @@ impl Plugin for GameplayPlugin {
         app.insert_resource(Score(0));
         app.add_system_set(
             SystemSet::on_enter(AppState::Gameplay)
-                .with_system(setup_level)
+                .with_system(setup_ui)
                 .with_system(setup_camera)
                 .with_system(setup_gameplay),
         );
         app.add_system_set(
             SystemSet::on_update(AppState::Gameplay)
+                .with_system(update_ui)
                 .with_system(on_begin_turn)
                 .with_system(check_game_over)
                 .with_system(on_snap_projectile),

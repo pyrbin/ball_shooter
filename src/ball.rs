@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 
+use crate::loading::TextureAssets;
+
 use super::hex;
 
 pub const BALL_RADIUS_COEFF: f32 = hex::INNER_RADIUS_COEFF * 0.85;
@@ -55,6 +57,7 @@ impl BallBundle {
         species: Species,
         meshes: &mut ResMut<Assets<Mesh>>,
         materials: &mut ResMut<Assets<StandardMaterial>>,
+        texture_assets: &Res<TextureAssets>,
     ) -> Self {
         Self {
             pbr: PbrBundle {
@@ -62,7 +65,13 @@ impl BallBundle {
                     subdivisions: 1,
                     radius: radius * BALL_RADIUS_COEFF,
                 })),
-                material: materials.add(species_to_color(species).into()),
+                material: materials.add(StandardMaterial {
+                    base_color: species_to_color(species).into(),
+                    base_color_texture: Some(texture_assets.texture_bevy.clone()),
+                    alpha_mode: AlphaMode::Blend,
+                    unlit: true,
+                    ..default()
+                }),
                 transform: Transform::from_translation(pos),
                 ..Default::default()
             },

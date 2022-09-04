@@ -24,18 +24,27 @@ dev = ["bevy/dynamic"]
 
 [dependencies.bevy]
 version = "0.8.0"
-features = ["bevy_asset", "bevy_winit", "render", "png", "x11"]
+features = [
+    "bevy_asset",
+    "bevy_winit",
+    "render",
+    "png",
+    "vorbis",
+    "hdr",
+    "x11",
+    "zstd",
+]
 
 [dependencies]
 bevy_kira_audio = "0.12"
 bevy_asset_loader = "0.12"
 bevy_embedded_assets = "0.4.0"
 bevy_mod_check_filter = "0.3.0"
-smooth-bevy-cameras = { git = "https://github.com/bonsairobo/smooth-bevy-cameras" }
 bevy_rapier3d = "0.16.2"
 bevy_egui = "0.15.1"
 bevy-inspector-egui = "0.12.1"
 bevy_prototype_debug_lines = { version = "0.8", features = ["3d"] }
+bevy-web-resizer = "3.0"
 
 rand = "0.8.3"
 
@@ -45,3 +54,6 @@ mimalloc = { version = "0.1.17", default-features = false }
 # Keep the following in sync with Bevy's dependencies
 winit = { version = "0.26.0", default-features = false }
 image = { version = "0.24", default-features = false }
+
+[patch.crates-io]
+wgpu = { git = "https://github.com/mockersf/wgpu/", branch = "unconditional-clear-workaround" }
