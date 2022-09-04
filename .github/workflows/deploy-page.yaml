@@ -3,6 +3,10 @@ name: deploy-github-page
 on:
   workflow_dispatch:
 
+env:
+  # update with the name of the main binary
+  binary: native
+
 jobs:
   release-wasm:
     runs-on: ubuntu-latest
