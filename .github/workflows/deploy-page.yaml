@@ -5,7 +5,7 @@ on:
 
 env:
   # update with the name of the main binary
-  binary: native
+  binary: ball_shooter
 
 jobs:
   release-wasm:

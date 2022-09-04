@@ -16,8 +16,8 @@ opt-level = 3
 debug = false
 
 [[bin]]
-name = "native"
-path = "src/bin/native.rs"
+name = "ball_shooter"
+path = "src/bin/ball_shooter.rs"
 
 [features]
 dev = ["bevy/dynamic"]
